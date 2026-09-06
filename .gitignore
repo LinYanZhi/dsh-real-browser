@@ -1,0 +1,6 @@
+node_modules/
+*.log
+smoke-tmp/
+*.tmp.js
+*.bak*
+.DS_Store

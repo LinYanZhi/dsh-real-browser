@@ -1,0 +1,74 @@
+{
+  "name": "dsh-real-browser",
+  "version": "0.3.0",
+  "description": "DSH plugin that lets the AI drive the REAL browser the user uses (real Chrome/Edge environments, RPA shop profiles) over CDP — not the plugin's own Electron sandbox. Environment detection with a built-in capability model, launch/attach/takeover/close, a full page interaction layer (snapshot with @eN refs, click, fill, type, keys, select, check, hover, scroll, wait, find, tabs, network, upload, console), plus a DSH web '浏览器设置' settings section (host typert RPC + React client plugin).",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./tools": "./tools.js",
+    "./cdp": "./cdp.js",
+    "./discover": "./discover.js",
+    "./launch": "./launch.js",
+    "./env": "./env.js",
+    "./snapshot": "./snapshot.js",
+    "./interact": "./interact.js",
+    "./host": "./host.js",
+    "./typert": "./typert.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cdp.js",
+    "discover.js",
+    "env.js",
+    "launch.js",
+    "snapshot.js",
+    "interact.js",
+    "tools.js",
+    "host.js",
+    "typert.js",
+    "client.js",
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build:client": "node build-client.mjs",
+    "smoke": "node smoke.mjs",
+    "test:register": "node tests/test-registration.mjs",
+    "test:env": "node tests/test-env-tool.mjs",
+    "test:guard": "node tests/test-guards.mjs",
+    "test:hostrpc": "node tests/test-host-rpc.mjs",
+    "test:interact": "node tests/test-interaction.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.5.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "browser",
+    "cdp",
+    "real-browser",
+    "rpa",
+    "client-plugin"
+  ],
+  "license": "MIT"
+}

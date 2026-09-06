@@ -1,0 +1,85 @@
+// Verify host.js RPC service methods accept POSITIONAL parameters exactly as the
+// Typert gateway dispatches them (manifest parameter order), and that setAllowed
+// persists to ~/.dsh/realbrowser-allowlist.json.
+// Backs up and restores the real allowlist file so the user's state is untouched.
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { apply } from '../host.js';
+
+const FILE = path.join(os.homedir(), '.dsh', 'realbrowser-allowlist.json');
+const AI_DIR = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'AI');
+const RPA_DIR = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data Rpa');
+const EXE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+
+const backup = existsSync(FILE) ? readFileSync(FILE, 'utf8') : null;
+const restore = () => {
+  if (backup === null) {
+    try { writeFileSync(FILE, JSON.stringify({ environments: [] }, null, 2)); } catch {}
+  } else {
+    writeFileSync(FILE, backup);
+  }
+};
+
+let failures = 0;
+const check = (label, cond, extra = '') => {
+  console.log(`${cond ? '✅' : '❌'} ${label}${cond ? '' : '  ' + extra}`);
+  if (!cond) failures++;
+};
+
+try {
+  const services = {};
+  const ctx = { provide: (name, value) => { services[name] = value; } };
+  apply(ctx);
+  const svc = services.realBrowser;
+  check('service provided', !!svc && typeof svc.setAllowed === 'function');
+
+  // 1. setAllowed ON, positionally like the gateway: (kind, userDataDir, profileId, allowed)
+  await svc.setAllowed('edge', AI_DIR, 'Default', true);
+  let raw = JSON.parse(readFileSync(FILE, 'utf8'));
+  check('setAllowed(true) persisted 1 entry', raw.environments.length === 1, JSON.stringify(raw));
+  check('entry has kind/userDataDir/profileId',
+    raw.environments[0]?.kind === 'edge' && raw.environments[0]?.userDataDir === AI_DIR && raw.environments[0]?.profileId === 'Default',
+    JSON.stringify(raw.environments[0]));
+
+  // 2. getAllowlist reflects it
+  const al = await svc.getAllowlist();
+  check('getAllowlist reflects toggle', al.environments.some((e) => e.userDataDir === AI_DIR && e.profileId === 'Default'),
+    JSON.stringify(al.environments));
+
+  // 3. launch on the ALLOWED config passes the allowlist gate (fails later on real launch env issues — not the gate)
+  //    Use a nonexistent exe to prove we got PAST assertAllowed (guard-2 error would mention user-data-dir).
+  try {
+    await svc.launch(EXE, AI_DIR, 'Default', 0, undefined, true, false);
+    check('launch(allowed) passed allowlist gate', true);
+  } catch (e) {
+    const msg = String(e.message || e);
+    check('launch(allowed) passed allowlist gate (no allowlist error)', !msg.includes('不在 AI 允许列表'), msg.slice(0, 120));
+  }
+
+  // 4. launch on a NOT-allowed config is rejected by the allowlist gate
+  try {
+    await svc.launch(EXE, RPA_DIR, 'Default', 0, undefined, true, false);
+    check('launch(not-allowed) rejected', false, 'should have thrown');
+  } catch (e) {
+    const msg = String(e.message || e);
+    check('launch(not-allowed) rejected with allowlist error', msg.includes('不在 AI 允许列表'), msg.slice(0, 120));
+  }
+
+  // 5. setAllowed OFF removes the entry
+  await svc.setAllowed('edge', AI_DIR, 'Default', false);
+  raw = JSON.parse(readFileSync(FILE, 'utf8'));
+  check('setAllowed(false) removed entry', raw.environments.length === 0, JSON.stringify(raw));
+
+  // 6. detectEnv / listRunning basic shapes
+  const env = await svc.detectEnv(false);
+  check('detectEnv shape', Array.isArray(env.browsers) && env.browsers.length >= 1, JSON.stringify(Object.keys(env)));
+  const run = await svc.listRunning();
+  check('listRunning shape', Array.isArray(run.instances), JSON.stringify(Object.keys(run)));
+
+  console.log(failures === 0 ? '\nALL HOST RPC CHECKS PASS ✅' : `\n${failures} CHECK(S) FAILED ❌`);
+  process.exitCode = failures === 0 ? 0 : 1;
+} finally {
+  restore();
+  console.log('allowlist file restored.');
+}

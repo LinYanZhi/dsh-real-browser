@@ -1,0 +1,32 @@
+# dsh-real-browser bundle patch: mounts the real-browser capability into a profile.
+#
+# These tools drive the REAL browser the user uses — real Chrome/Edge
+# environments and RPA shop profiles — over CDP, NOT the plugin's own
+# Electron sandbox. Built-in capability model: the DEFAULT user-data-dir
+# cannot be CDP-driven (Chrome/Edge refuse remote debugging on the default
+# data directory); non-default dirs (e.g. "Edge User Data Rpa") can.
+#
+# Entries:
+#   - real-browser-tools: the model-facing real_browser_* / real_page_* tools
+#   - real-browser (BARE package name): registers the realBrowser host service
+#     (typert RPC: detectEnv / listRunning / launch / close) AND — because it is
+#     a bare package-name entry — lets the web client-modules scanner recognize
+#     this package's `dsh.client` + `./client` so the "浏览器设置" settings
+#     section (client plugin) loads. Subpath entries are skipped by the scan.
+#
+# Mount into a profile's user patch layer (cordis.patch.yml):
+#   - insert:
+#       - id: real-browser-tools
+#         name: dsh-real-browser/tools
+#   - insert:
+#       - id: real-browser
+#         name: dsh-real-browser
+# This bundle manifest exists so the package can also be installed as a
+# profile bundle via `dsh plugin --profile <name> add dsh-real-browser`.
+- insert:
+    - id: real-browser-tools
+      name: dsh-real-browser/tools
+
+- insert:
+    - id: real-browser
+      name: dsh-real-browser
