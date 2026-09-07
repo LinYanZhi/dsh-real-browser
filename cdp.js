@@ -12,11 +12,24 @@
 
 /** The browser HTTP endpoint exposed by `--remote-debugging-port`. */
 export async function httpJson(url) {
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    throw new Error(
+      `CDP endpoint unreachable: ${url} (${e.message}) — the browser on this port is likely closed; verify with real_browser_list / real_browser_env.`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`CDP HTTP ${res.status} for ${url}`);
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    throw new Error(
+      `CDP endpoint ${url} returned non-JSON HTTP ${res.status} — the port may be occupied by a non-browser service; pick a different port.`,
+    );
+  }
 }
 
 /** GET /json/version — the browser-level info (webSocketDebuggerUrl etc.). */
@@ -62,7 +75,7 @@ export class CdpSession {
       });
       ws.addEventListener('error', () => {
         clearTimeout(timer);
-        reject(new Error(`CDP connect error to ${wsUrl}`));
+        reject(new Error(`CDP connect error to ${wsUrl} — the browser on this port may be closed; verify with real_browser_list.`));
       });
     });
     return new CdpSession(ws);

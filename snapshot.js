@@ -20,8 +20,15 @@ const INTERACTIVE_ROLES = new Set([
 ]);
 
 /**
- * In-page collection script. Returns the list of interactive elements.
- * Kept as a string so it can be eval'd in the page (no closure capture).
+ * In-page collection script. Walks the top document AND every reachable
+ * same-origin iframe (recursively), numbering every interactive element
+ * `e1..eN`. Elements inside an iframe carry a `frame` field: a slash-joined
+ * path of iframe indices, e.g. `"0"` (first iframe in the top document) or
+ * `"0/1"` (first iframe inside that one). Same-origin frames are reachable
+ * from the parent document; cross-origin iframes cannot be reached and are
+ * reported separately in `crossOriginFrames` ({frame, src}) so the AI knows
+ * the page has untouchable frames.
+ * Returns { elements, crossOriginFrames }.
  */
 const COLLECT_SCRIPT = `(() => {
   const INTERACTIVE_ROLES = new Set(${JSON.stringify([...INTERACTIVE_ROLES])});
@@ -37,10 +44,10 @@ const COLLECT_SCRIPT = `(() => {
     if (tab !== null && Number(tab) >= 0) return true;
     return false;
   };
-  const cssPath = (el) => {
+  const cssPath = (doc, el) => {
     if (el.id) {
       const s = '#' + CSS.escape(el.id);
-      try { if (document.querySelectorAll(s).length === 1) return s; } catch {}
+      try { if (doc.querySelectorAll(s).length === 1) return s; } catch {}
     }
     const parts = [];
     let node = el;
@@ -76,45 +83,76 @@ const COLLECT_SCRIPT = `(() => {
     return r.width > 0 && r.height > 0;
   };
   const out = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-  let node;
-  while ((node = walker.nextNode())) {
-    if (!isInteractive(node)) continue;
-    const r = node.getBoundingClientRect();
-    const item = {
-      tag: node.tagName.toLowerCase(),
-      role: node.getAttribute('role') || undefined,
-      name: nameOf(node) || undefined,
-      type: node.getAttribute('type') || undefined,
-      value: (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') ? node.value : undefined,
-      visible: visible(node),
-      x: Math.round(r.left + r.width / 2),
-      y: Math.round(r.top + r.height / 2),
-      selector: cssPath(node),
-    };
-    out.push(item);
-  }
-  return JSON.stringify(out);
+  const crossOriginFrames = [];
+  // ox/oy = cumulative iframe offset so reported x/y are TOP-VIEWPORT
+  // coordinates (what CDP Input.dispatchMouseEvent expects), not iframe-local.
+  const collectInDoc = (doc, framePath, ox, oy) => {
+    const walker = doc.createTreeWalker(doc.body || doc.documentElement, NodeFilter.SHOW_ELEMENT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!isInteractive(node)) continue;
+      const r = node.getBoundingClientRect();
+      out.push({
+        tag: node.tagName.toLowerCase(),
+        role: node.getAttribute('role') || undefined,
+        name: nameOf(node) || undefined,
+        type: node.getAttribute('type') || undefined,
+        value: (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') ? node.value : undefined,
+        visible: visible(node),
+        x: Math.round(r.left + r.width / 2 + ox),
+        y: Math.round(r.top + r.height / 2 + oy),
+        selector: cssPath(doc, node),
+        frame: framePath || undefined,
+      });
+    }
+    const iframes = doc.querySelectorAll('iframe');
+    for (let i = 0; i < iframes.length; i += 1) {
+      const f = iframes[i];
+      const childPath = framePath ? framePath + '/' + i : String(i);
+      let cd = null;
+      try { cd = f.contentDocument; } catch { cd = null; }
+      if (cd && (cd.body || cd.documentElement)) {
+        const fr = f.getBoundingClientRect();
+        collectInDoc(cd, childPath, ox + fr.left, oy + fr.top);
+      } else {
+        crossOriginFrames.push({ frame: childPath, src: f.src || undefined });
+      }
+    }
+  };
+  collectInDoc(document, '', 0, 0);
+  return JSON.stringify({ elements: out, crossOriginFrames });
 })()`;
 
 /**
- * Collect the interactive elements of the current page.
+ * Collect the interactive elements of the current page AND its reachable
+ * same-origin iframes, assigning refs `e1..eN` (depth-first, top document
+ * first). Elements from an iframe carry `frame` (a slash-joined iframe path).
  * @returns {Promise<Array>} elements with ref assigned here (e1..eN).
  */
-export async function collectInteractive(port, opts = {}) {
+export async function collectAll(port, opts = {}) {
   const r = await evaluateJs(port, COLLECT_SCRIPT, { urlSubstring: opts.urlSubstring });
   if (r.__exception) throw new Error(`snapshot JS error: ${r.text} ${r.description}`.trim());
-  let list = [];
+  let parsed;
   try {
-    list = JSON.parse(r.value ?? '[]');
+    parsed = JSON.parse(r.value ?? '{}');
   } catch {
     throw new Error('snapshot returned unparseable data');
   }
-  return list.map((el, i) => ({ ...el, ref: `e${i + 1}` }));
+  return {
+    elements: (parsed.elements ?? []).map((el, i) => ({ ...el, ref: `e${i + 1}` })),
+    crossOriginFrames: parsed.crossOriginFrames ?? [],
+  };
+}
+
+/** @returns {Promise<Array>} the interactive elements only (refs e1..eN). */
+export async function collectInteractive(port, opts = {}) {
+  const { elements } = await collectAll(port, opts);
+  return elements;
 }
 
 /**
- * Full interactive snapshot for the AI: origin + elements (+ optional caps).
+ * Full interactive snapshot for the AI: origin + url + elements (+ iframe
+ * info + optional caps).
  */
 export async function snapshotInteractive(port, opts = {}) {
   const urlInfo = await evaluateJs(port, `JSON.stringify({ origin: location.origin, url: location.href })`, {
@@ -128,8 +166,8 @@ export async function snapshotInteractive(port, opts = {}) {
     url = info.url ?? '';
   } catch { /* keep empty */ }
 
-  const elements = await collectInteractive(port, opts);
+  const { elements, crossOriginFrames } = await collectAll(port, opts);
   const max = opts.maxElements ?? 120;
   const truncated = elements.length > max;
-  return { origin, url, elements: truncated ? elements.slice(0, max) : elements, truncated };
+  return { origin, url, elements: truncated ? elements.slice(0, max) : elements, crossOriginFrames, truncated };
 }

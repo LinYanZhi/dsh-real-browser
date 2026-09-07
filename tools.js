@@ -26,6 +26,7 @@ import { assertAllowed, isAllowed, toggleAllowed, readAllowlist, inferKind } fro
 import { listTargets, evaluateJs, readPageDom, navigatePage } from './cdp.js';
 import { detectEnvironment, readProfiles } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
+import { listDownloads, stopDownloadTracking } from './downloads.js';
 import {
   clickElement, hoverElement, fillElement, typeElement, pressKey, selectOption, checkElement,
   scrollPage, waitFor, findElements, listTabs, newTab, switchTab, closeTab,
@@ -193,7 +194,9 @@ export function apply(ctx) {
       timeoutMs: 15000,
       isConcurrencySafe: () => true,
       async execute(args) {
-        return { killed: closeRealBrowser(args.port) };
+        const killed = closeRealBrowser(args.port);
+        stopDownloadTracking(args.port);
+        return { killed };
       },
     }),
   );
@@ -487,6 +490,13 @@ export function apply(ctx) {
     ref: { type: 'string', description: 'Element ref from real_page_snapshot, e.g. "e3".' },
     selector: { type: 'string', description: 'CSS selector matching an element.' },
   };
+  const FRAME = {
+    frame: {
+      type: 'string',
+      description:
+        'Same-origin iframe path from real_page_snapshot, e.g. "0" (first iframe in the top document) or "0/1" (first iframe inside that one). Omit for the top frame. A ref from a snapshot inside an iframe carries its frame automatically. Cross-origin iframes cannot be reached and are listed separately in the snapshot.',
+    },
+  };
   const PORT = { port: { type: 'number', required: true, description: 'CDP debug port of the real browser.' } };
   const URLSUB = { urlSubstring: { type: 'string', description: 'Pick the tab whose url/title contains this; default = preferred page.' } };
   const urlOpts = (args) => ({ urlSubstring: args.urlSubstring });
@@ -494,14 +504,17 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_snapshot',
     description:
-      'Take an interactive-element snapshot of a page in a real browser. Every clickable/typeable element is numbered with a ref like "e3" plus its role, name, value, center x/y, and a CSS selector. Use this BEFORE interacting — other tools accept ref ("e3") or selector. Refs are per-snapshot: after the DOM changes, re-snapshot. This is the foundation for reliable interaction (agent-browser style).',
+      'Take an interactive-element snapshot of a page in a real browser. Every clickable/typeable element is numbered with a ref like "e3" plus its role, name, value, center x/y, and a CSS selector. Elements inside SAME-ORIGIN iframes are included and carry a "frame" field (e.g. "0", "0/1"); use that value as the frame argument of interaction tools, or just use the ref (it carries the frame). Cross-origin iframes cannot be reached and are listed in crossOriginFrames. Use this BEFORE interacting — other tools accept ref ("e3") or selector. Refs are per-snapshot: after the DOM changes, re-snapshot. This is the foundation for reliable interaction (agent-browser style).',
     parameters: { ...PORT, ...URLSUB, maxElements: { type: 'number', description: 'Cap on returned elements (default 120).' } },
     output: {
-      schema: { type: 'object', additionalProperties: true, properties: { origin: { type: 'string' }, url: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true } }, truncated: { type: 'boolean' } } },
+      schema: { type: 'object', additionalProperties: true, properties: { origin: { type: 'string' }, url: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true } }, crossOriginFrames: { type: 'array', items: { type: 'object', additionalProperties: true } }, truncated: { type: 'boolean' } } },
       render: (args, value) => {
         const lines = [`Page ${value.url || ''} (${value.origin || ''}) — ${value.elements.length} interactive element(s)${value.truncated ? ' (truncated)' : ''}:`];
         for (const el of value.elements) {
-          lines.push(`  [${el.ref}] <${el.tag}>${el.role ? ` role=${el.role}` : ''}${el.type ? ` type=${el.type}` : ''} ${el.visible ? '' : '(hidden) '}(${el.x},${el.y}) ${el.name ? JSON.stringify(el.name) : ''}${el.value !== undefined ? ` value=${JSON.stringify(String(el.value).slice(0, 40))}` : ''}`);
+          lines.push(`  [${el.ref}]${el.frame ? ` frame=${el.frame}` : ''} <${el.tag}>${el.role ? ` role=${el.role}` : ''}${el.type ? ` type=${el.type}` : ''} ${el.visible ? '' : '(hidden) '}(${el.x},${el.y}) ${el.name ? JSON.stringify(el.name) : ''}${el.value !== undefined ? ` value=${JSON.stringify(String(el.value).slice(0, 40))}` : ''}`);
+        }
+        for (const f of value.crossOriginFrames || []) {
+          lines.push(`  [cross-origin iframe frame=${f.frame} — not reachable from parent context] src=${f.src || '(inline)'}`);
         }
         return text(lines.join('\n'));
       },
@@ -516,7 +529,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_click',
     description: 'Click (or double-click) an element in a real browser, by ref ("e3"), CSS selector, or viewport x/y coordinates. Uses real CDP mouse events at the element center.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, x: { type: 'number', description: 'Viewport x (with y, instead of ref/selector).' }, y: { type: 'number', description: 'Viewport y (with x).' }, doubleClick: { type: 'boolean', description: 'Double click (default false).' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, x: { type: 'number', description: 'Viewport x (with y, instead of ref/selector).' }, y: { type: 'number', description: 'Viewport y (with x).' }, doubleClick: { type: 'boolean', description: 'Double click (default false).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Clicked at (${v.x},${v.y})${v.clickCount > 1 ? ' (double)' : ''}.`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -526,7 +539,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_fill',
     description: 'Fill an input/textarea/contenteditable in a real browser with a value (native setter + input/change events, React/Vue-safe). clear=true replaces the value; false appends.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, value: { type: 'string', required: true, description: 'Value to set.' }, clear: { type: 'boolean', description: 'Clear first (default true).' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, value: { type: 'string', required: true, description: 'Value to set.' }, clear: { type: 'boolean', description: 'Clear first (default true).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Filled => ${JSON.stringify(v.value)}`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -536,7 +549,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_type',
     description: 'Type text into a focused element in a real browser (focuses the target, then inserts text via CDP Input.insertText — keystroke-like). Use for inputs that react to keydown.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, text: { type: 'string', required: true, description: 'Text to type.' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, text: { type: 'string', required: true, description: 'Text to type.' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Typed ${JSON.stringify(v.typed)}`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -556,7 +569,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_select',
     description: 'Select an option in a <select> in a real browser, by option value or visible text.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, value: { type: 'string', description: 'Option value to select.' }, text: { type: 'string', description: 'Option text to select (substring).' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, value: { type: 'string', description: 'Option value to select.' }, text: { type: 'string', description: 'Option text to select (substring).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Selected value=${JSON.stringify(v.value)}`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -566,7 +579,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_check',
     description: 'Check or uncheck a checkbox/radio in a real browser (native setter + change event).',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, checked: { type: 'boolean', description: 'Desired state (default true).' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, checked: { type: 'boolean', description: 'Desired state (default true).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`checked=${v.checked}`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -576,7 +589,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_hover',
     description: 'Move the mouse over an element in a real browser (by ref/selector/x,y). Useful to trigger hover menus/tooltips.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, x: { type: 'number' }, y: { type: 'number' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, x: { type: 'number' }, y: { type: 'number' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Hovered at (${v.x},${v.y}).`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
@@ -586,7 +599,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_scroll',
     description: 'Scroll a real browser page: pass a ref/selector to scroll that element into view, or pass direction (up/down/left/right) + pixels to scroll the window.',
-    parameters: { ...PORT, ...TARGET, ...URLSUB, direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Scroll direction (with pixels).' }, pixels: { type: 'number', description: 'Scroll distance (default 400).' } },
+    parameters: { ...PORT, ...TARGET, ...FRAME, ...URLSUB, direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Scroll direction (with pixels).' }, pixels: { type: 'number', description: 'Scroll distance (default 400).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Scrolled: ${v.scrolled}`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => true,
@@ -596,7 +609,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_wait',
     description: 'Wait for a condition in a real browser: element (visible), text, URL substring, JS expression, or a fixed delay. Returns satisfied=true when met, or satisfied=false + timedOut=true (does NOT throw on timeout).',
-    parameters: { ...PORT, ...URLSUB, selector: { type: 'string', description: 'Wait for this element to be visible.' }, text: { type: 'string', description: 'Wait for this text (substring).' }, url: { type: 'string', description: 'Wait for URL containing this.' }, jsCondition: { type: 'string', description: 'JS expression to wait for, e.g. "window.ready === true".' }, timeMs: { type: 'number', description: 'Fixed delay in ms.' }, timeoutMs: { type: 'number', description: 'Max wait (default 15000).' } },
+    parameters: { ...PORT, ...URLSUB, ...FRAME, selector: { type: 'string', description: 'Wait for this element to be visible.' }, text: { type: 'string', description: 'Wait for this text (substring).' }, url: { type: 'string', description: 'Wait for URL containing this.' }, jsCondition: { type: 'string', description: 'JS expression to wait for, e.g. "window.ready === true" (runs in the given frame\'s document when frame is provided).' }, timeMs: { type: 'number', description: 'Fixed delay in ms.' }, timeoutMs: { type: 'number', description: 'Max wait (default 15000).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(v.satisfied ? `Condition satisfied after ${v.ms}ms.` : `Timed out after ${v.ms}ms.`) },
     timeoutMs: 30000,
     isConcurrencySafe: () => true,
@@ -606,7 +619,7 @@ export function apply(ctx) {
   register(defineTool({
     name: 'real_page_find',
     description: 'Find elements matching a CSS selector in a real browser and return their tag/id/text/href/value/visibility. For inspecting what a selector matches before interacting.',
-    parameters: { ...PORT, ...URLSUB, selector: { type: 'string', required: true, description: 'CSS selector.' }, max: { type: 'number', description: 'Max results (default 20).' } },
+    parameters: { ...PORT, ...URLSUB, ...FRAME, selector: { type: 'string', required: true, description: 'CSS selector.' }, max: { type: 'number', description: 'Max results (default 20).' } },
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Found ${v.count} element(s) for "${v.selector}".`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => true,
@@ -661,5 +674,39 @@ export function apply(ctx) {
     timeoutMs: 20000,
     isConcurrencySafe: () => true,
     async execute(args) { return readConsole(args.port, { clear: args.clear, urlSubstring: args.urlSubstring }); },
+  }));
+
+  register(defineTool({
+    name: 'real_page_downloads',
+    description:
+      'List downloads tracked for a real browser over CDP (from when tracking was first activated on this port): suggested filename, URL, byte progress, and state (inProgress/completed/canceled). Tracking activates on the first call, keeps a persistent listener, and redirects downloads for that browser to `downloadDir` (default: the user\'s Downloads folder, so files keep landing where expected). Downloads that happened BEFORE the first call are not recorded. Use after triggering a download in the page to verify it started/finished. clear=true empties the tracked list after reading. Returns tracking:false when the browser is unreachable.',
+    parameters: {
+      port: { type: 'number', required: true, description: 'CDP debug port of the real browser.' },
+      downloadDir: { type: 'string', description: 'Where downloaded files land while tracking is active (default: the user\'s Downloads folder).' },
+      clear: { type: 'boolean', description: 'Clear the tracked list after reading (default false).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          tracking: { type: 'boolean' },
+          downloads: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+      },
+      render: (_args, v) => {
+        if (!v.tracking) return text('Download tracking is not active — the browser on this port is unreachable.');
+        if (v.downloads.length === 0) return text('No downloads tracked yet (tracking is active; downloads trigger when the page saves a file).');
+        return text(
+          `Download tracking active — ${v.downloads.length} download(s):\n` +
+            v.downloads
+              .map((d) => `  [${d.state}] ${d.suggestedFilename ?? '(unnamed)'} — ${d.receivedBytes}/${d.totalBytes} bytes — ${d.url}`)
+              .join('\n'),
+        );
+      },
+    },
+    timeoutMs: 20000,
+    isConcurrencySafe: () => true,
+    async execute(args) { return listDownloads(args.port, { clear: args.clear, downloadDir: args.downloadDir }); },
   }));
 }

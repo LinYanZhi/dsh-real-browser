@@ -16,6 +16,47 @@ import { collectInteractive } from './snapshot.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Build the JS prologue that resolves a frame path to `__root` (a Document).
+ * A frame path is a slash-joined list of iframe indices from real_page_snapshot:
+ *   ""    -> the top document
+ *   "0"   -> the first iframe of the top document
+ *   "0/1" -> the first iframe inside that one
+ * Same-origin frames are reachable from the parent; a cross-origin or vanished
+ * iframe throws inside the page with a specific message. `__ox`/`__oy` carry
+ * the cumulative iframe offset so element coordinates can be converted from
+ * iframe-local to TOP-VIEWPORT (what CDP Input.dispatchMouseEvent expects).
+ */
+function framePrologue(framePath) {
+  if (!framePath) return 'const __root = document; const __ox = 0, __oy = 0;';
+  const parts = String(framePath).split('/').filter(Boolean);
+  let code = 'let __root = document; let __ox = 0, __oy = 0;';
+  for (const p of parts) {
+    const n = Number(p);
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`invalid iframe path segment "${p}" in "${framePath}" — use the frame field from real_page_snapshot`);
+    }
+    code +=
+      `\n{ const __ifr = __root.querySelectorAll('iframe')[${n}];` +
+      ` if (!__ifr) throw new Error(${JSON.stringify(`frame ${framePath}: iframe [${n}] gone — re-snapshot`)});` +
+      ` const __r = __ifr.getBoundingClientRect(); __ox += __r.left; __oy += __r.top;` +
+      ` __root = __ifr.contentDocument;` +
+      ` if (!__root) throw new Error(${JSON.stringify(`frame ${framePath}: iframe [${n}] is cross-origin — cannot reach from the parent context`)}); }`;
+  }
+  return code;
+}
+
+/**
+ * Wrap a `(() => {...})()` body so it runs against `__root` (the document of
+ * the given frame, or the top document when framePath is empty). The body's
+ * `document.` references are rewritten to `__root.` so selectors resolve
+ * inside the frame.
+ */
+function framed(framePath, body) {
+  const rooted = body.replaceAll('document.', '__root.');
+  return rooted.replace(/^\(\(\) => \{/, `(() => { ${framePrologue(framePath)}`);
+}
+
 /** Connect to a page target's CDP session. */
 async function withPageSession(port, urlSubstring, fn) {
   const target = await pickPageTarget(port, urlSubstring);
@@ -50,41 +91,47 @@ async function evalInPage(session, expression) {
 }
 
 /**
- * Resolve a target to { selector?, x, y }. Coordinates come from the element
- * center (or are taken verbatim when x/y are given).
+ * Resolve a target to { selector?, frame?, x, y }. Coordinates come from the
+ * element center (or are taken verbatim when x/y are given). A ref carries its
+ * snapshot frame; a bare selector resolves in the top frame unless `frame` is
+ * passed explicitly.
  */
 async function resolveTarget(port, target, urlSubstring) {
   if (typeof target.x === 'number' && typeof target.y === 'number') {
     return { x: target.x, y: target.y };
   }
   let selector = target.selector;
+  let frame = target.frame;
   if (target.ref) {
     const all = await collectInteractive(port, { urlSubstring });
     const n = Number(String(target.ref).replace(/^e/i, ''));
     const el = all[n - 1];
     if (!el) throw new Error(`ref ${target.ref} not found — re-run real_page_snapshot (DOM may have changed)`);
     selector = el.selector;
+    frame = el.frame ?? frame;
   }
   if (!selector) throw new Error('provide a ref, a CSS selector, or x/y coordinates');
 
   return withPageSession(port, urlSubstring, async (session) => {
     const result = await evalInPage(
       session,
-      `(() => {
-        const els = document.querySelectorAll(${JSON.stringify(selector)});
+      framed(frame, `(() => {
+        const els = __root.querySelectorAll(${JSON.stringify(selector)});
         if (els.length === 0) return { found: 0 };
         const el = els[0];
         el.scrollIntoView({ block: 'center', inline: 'center' });
         const r = el.getBoundingClientRect();
-        return { found: els.length, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-      })()`,
+        return { found: els.length, x: Math.round(r.left + r.width / 2 + __ox), y: Math.round(r.top + r.height / 2 + __oy) };
+      })()`),
     );
-    if (!result || result.found === 0) throw new Error(`no element matched selector "${selector}"`);
+    if (!result || result.found === 0) {
+      throw new Error(`no element matched selector "${selector}"${frame ? ` in iframe ${frame}` : ''}`);
+    }
     if (result.found > 1) {
       // still proceed with the first match but surface the ambiguity
-      return { selector, x: result.x, y: result.y, matched: result.found };
+      return { selector, frame, x: result.x, y: result.y, matched: result.found };
     }
-    return { selector, x: result.x, y: result.y, matched: 1 };
+    return { selector, frame, x: result.x, y: result.y, matched: 1 };
   });
 }
 
@@ -104,13 +151,13 @@ async function mouse(port, urlSubstring, x, y, action) {
   });
 }
 
-export async function clickElement(port, { ref, selector, x, y, doubleClick, urlSubstring }) {
-  const t = await resolveTarget(port, { ref, selector, x, y }, urlSubstring);
+export async function clickElement(port, { ref, selector, frame, x, y, doubleClick, urlSubstring }) {
+  const t = await resolveTarget(port, { ref, selector, frame, x, y }, urlSubstring);
   return mouse(port, urlSubstring, t.x, t.y, doubleClick ? 'dblclick' : 'click');
 }
 
-export async function hoverElement(port, { ref, selector, x, y, urlSubstring }) {
-  const t = await resolveTarget(port, { ref, selector, x, y }, urlSubstring);
+export async function hoverElement(port, { ref, selector, frame, x, y, urlSubstring }) {
+  const t = await resolveTarget(port, { ref, selector, frame, x, y }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
     await session.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: t.x, y: t.y });
     return { x: t.x, y: t.y };
@@ -121,13 +168,13 @@ export async function hoverElement(port, { ref, selector, x, y, urlSubstring }) 
 // Form actions (native setter + events, React/Vue-safe)
 // ---------------------------------------------------------------------------
 
-export async function fillElement(port, { ref, selector, value, clear = true, urlSubstring }) {
-  const target = await resolveTarget(port, { ref, selector }, urlSubstring);
+export async function fillElement(port, { ref, selector, frame, value, clear = true, urlSubstring }) {
+  const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
     const r = await evalInPage(
       session,
-      `(() => {
-        const el = document.querySelector(${JSON.stringify(target.selector)});
+      framed(target.frame, `(() => {
+        const el = __root.querySelector(${JSON.stringify(target.selector)});
         if (!el) return { ok: false, reason: 'not found' };
         const set = (v) => {
           if (el.isContentEditable) { el.textContent = v; return; }
@@ -140,17 +187,17 @@ export async function fillElement(port, { ref, selector, value, clear = true, ur
         const next = ${clear ? '""' : 'el.value'} + ${JSON.stringify(value)};
         set(next);
         return { ok: true, value: el.value };
-      })()`,
+      })()`),
     );
     if (!r?.ok) throw new Error(`fill failed: ${r?.reason ?? 'unknown'}`);
     return r;
   });
 }
 
-export async function typeElement(port, { ref, selector, text, urlSubstring }) {
-  const target = await resolveTarget(port, { ref, selector }, urlSubstring);
+export async function typeElement(port, { ref, selector, frame, text, urlSubstring }) {
+  const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
-    await evalInPage(session, `(() => { const el = document.querySelector(${JSON.stringify(target.selector)}); if (!el) return false; el.focus(); return true; })()`);
+    await evalInPage(session, framed(target.frame, `(() => { const el = __root.querySelector(${JSON.stringify(target.selector)}); if (!el) return false; el.focus(); return true; })()`));
     await session.call('Input.insertText', { text });
     return { typed: text };
   });
@@ -192,13 +239,13 @@ export async function pressKey(port, { key, urlSubstring }) {
   });
 }
 
-export async function selectOption(port, { ref, selector, value, text, urlSubstring }) {
-  const target = await resolveTarget(port, { ref, selector }, urlSubstring);
+export async function selectOption(port, { ref, selector, frame, value, text, urlSubstring }) {
+  const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
     const r = await evalInPage(
       session,
-      `(() => {
-        const el = document.querySelector(${JSON.stringify(target.selector)});
+      framed(target.frame, `(() => {
+        const el = __root.querySelector(${JSON.stringify(target.selector)});
         if (!el || el.tagName !== 'SELECT') return { ok: false, reason: 'not a <select>' };
         let idx = -1;
         for (let i = 0; i < el.options.length; i++) {
@@ -209,20 +256,20 @@ export async function selectOption(port, { ref, selector, value, text, urlSubstr
         el.selectedIndex = idx;
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return { ok: true, value: el.value };
-      })()`,
+      })()`),
     );
     if (!r?.ok) throw new Error(`select failed: ${r?.reason ?? 'unknown'}${r?.options ? ' options: ' + r.options.join(' | ') : ''}`);
     return r;
   });
 }
 
-export async function checkElement(port, { ref, selector, checked, urlSubstring }) {
-  const target = await resolveTarget(port, { ref, selector }, urlSubstring);
+export async function checkElement(port, { ref, selector, frame, checked, urlSubstring }) {
+  const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
     const r = await evalInPage(
       session,
-      `(() => {
-        const el = document.querySelector(${JSON.stringify(target.selector)});
+      framed(target.frame, `(() => {
+        const el = __root.querySelector(${JSON.stringify(target.selector)});
         if (!el) return { ok: false, reason: 'not found' };
         const set = (v) => {
           const proto = (el.tagName === 'INPUT' && el.type === 'checkbox') ? HTMLInputElement.prototype : null;
@@ -232,7 +279,7 @@ export async function checkElement(port, { ref, selector, checked, urlSubstring 
         };
         set(${checked ? 'true' : 'false'});
         return { ok: true, checked: el.checked };
-      })()`,
+      })()`),
     );
     if (!r?.ok) throw new Error(`check failed: ${r?.reason ?? 'unknown'}`);
     return r;
@@ -243,11 +290,11 @@ export async function checkElement(port, { ref, selector, checked, urlSubstring 
 // Scroll / wait / find
 // ---------------------------------------------------------------------------
 
-export async function scrollPage(port, { ref, selector, direction, pixels, urlSubstring }) {
+export async function scrollPage(port, { ref, selector, frame, direction, pixels, urlSubstring }) {
   return withPageSession(port, urlSubstring, async (session) => {
     if (ref || selector) {
-      const target = await resolveTarget(port, { ref, selector }, urlSubstring);
-      await evalInPage(session, `document.querySelector(${JSON.stringify(target.selector)}).scrollIntoView({ block: 'center' }); true`);
+      const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
+      await evalInPage(session, framed(target.frame, `(() => { __root.querySelector(${JSON.stringify(target.selector)}).scrollIntoView({ block: 'center' }); return true; })()`));
       return { scrolled: 'element into view' };
     }
     if (!direction) throw new Error('provide a selector/ref to scroll into view, or a direction');
@@ -258,25 +305,28 @@ export async function scrollPage(port, { ref, selector, direction, pixels, urlSu
   });
 }
 
-export async function waitFor(port, { selector, text, url, jsCondition, timeMs, timeoutMs = 15000, urlSubstring }) {
+export async function waitFor(port, { selector, text, url, jsCondition, frame, timeMs, timeoutMs = 15000, urlSubstring }) {
   if (timeMs) {
     await sleep(timeMs);
     return { condition: 'delay', satisfied: true, ms: timeMs };
   }
   const conditions = [];
-  if (selector) conditions.push(`document.querySelector(${JSON.stringify(selector)}) && (() => { const e = document.querySelector(${JSON.stringify(selector)}); const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; })()`);
-  if (text) conditions.push(`document.body && document.body.innerText.includes(${JSON.stringify(text)})`);
+  if (selector) conditions.push(`__root.querySelector(${JSON.stringify(selector)}) && (() => { const e = __root.querySelector(${JSON.stringify(selector)}); const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; })()`);
+  if (text) conditions.push(`__root.body && __root.body.innerText.includes(${JSON.stringify(text)})`);
   if (url) conditions.push(`location.href.includes(${JSON.stringify(url)})`);
-  if (jsCondition) conditions.push(`(${jsCondition})`);
+  if (jsCondition) conditions.push(`(${frame ? String(jsCondition).replaceAll('document.', '__root.') : jsCondition})`);
   if (conditions.length === 0) throw new Error('provide selector, text, url, jsCondition, or timeMs');
 
-  const expr = conditions.map((c) => `(${c})`).join(' && ');
+  // Evaluate the whole condition set inside the chosen frame's document so
+  // selectors/text resolve there; a vanished/cross-origin frame keeps polling
+  // until the timeout (same as any other unmet condition).
+  const expr = `(() => { ${framePrologue(frame)} ; return (${conditions.map((c) => `(${c})`).join(' && ')}); })()`;
   const start = Date.now();
   const session = await CdpSession.connect((await pickPageTarget(port, urlSubstring)).webSocketDebuggerUrl);
   try {
     while (Date.now() - start < timeoutMs) {
       const r = await session.call('Runtime.evaluate', { expression: expr, returnByValue: true });
-      if (r.result?.value === true) return { condition: 'satisfied', satisfied: true, ms: Date.now() - start };
+      if (!r.exceptionDetails && r.result?.value === true) return { condition: 'satisfied', satisfied: true, ms: Date.now() - start };
       await sleep(300);
     }
     return { condition: 'timeout', satisfied: false, timedOut: true, ms: Date.now() - start };
@@ -285,21 +335,24 @@ export async function waitFor(port, { selector, text, url, jsCondition, timeMs, 
   }
 }
 
-export async function findElements(port, { selector, max = 20, urlSubstring }) {
+export async function findElements(port, { selector, frame, max = 20, urlSubstring }) {
   if (!selector) throw new Error('provide a CSS selector to find');
   return withPageSession(port, urlSubstring, async (session) => {
     const list = await evalInPage(
       session,
-      `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(selector)})).slice(0, ${max}).map(el => ({
-        tag: el.tagName.toLowerCase(),
-        id: el.id || undefined,
-        text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100) || undefined,
-        href: (el.getAttribute('href') || undefined),
-        value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? el.value : undefined,
-        visible: (() => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })(),
-      })))`,
+      framed(frame, `(() => {
+        return JSON.stringify(Array.from(__root.querySelectorAll(${JSON.stringify(selector)})).slice(0, ${max}).map(el => ({
+          tag: el.tagName.toLowerCase(),
+          id: el.id || undefined,
+          text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100) || undefined,
+          href: (el.getAttribute('href') || undefined),
+          value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? el.value : undefined,
+          visible: (() => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })(),
+        })));
+      })()`),
     );
-    return { selector, count: JSON.parse(list ?? '[]').length, elements: JSON.parse(list ?? '[]') };
+    const parsed = JSON.parse(list ?? '[]');
+    return { selector, count: parsed.length, elements: parsed };
   });
 }
 

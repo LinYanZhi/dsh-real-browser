@@ -31,8 +31,8 @@ DSH 插件：让 DSH 的 AI 通过 **CDP 驱动用户真正在用的浏览器**�
 | `real_page_dom` | 查看页面 DOM（整页或 CSS 选择器，上限 100k 字符） |
 | `real_page_eval` | 在页面主世界执行 JS（读状态 / 点元素 / 填输入），返回序列化值或异常 |
 | `real_page_navigate` | 在驱动浏览器里导航到指定 URL |
-| `real_page_snapshot` | **交互元素快照**：可点/可填元素编号 `e1..eN`（含角色/名称/值/中心坐标/CSS 选择器），交互前必用 |
-| `real_page_click` | 按 ref / 选择器 / x,y 坐标点击（真实 CDP 鼠标事件，支持双击） |
+| `real_page_snapshot` | **交互元素快照**：可点/可填元素编号 `e1..eN`（含角色/名称/值/中心坐标/CSS 选择器），交互前必用。**同源 iframe 内的元素也会收录**并带 `frame` 字段（如 `"0"`、`"0/1"`），跨源 iframe 无法穿透、单独列在 `crossOriginFrames` |
+| `real_page_click` | 按 ref / 选择器 / x,y 坐标点击（真实 CDP 鼠标事件，支持双击；ref 自动携带 iframe，也可显式传 `frame`） |
 | `real_page_fill` | 填输入/文本域/contenteditable（原生 setter + input/change，React/Vue 安全），可清空或追加 |
 | `real_page_type` | 聚焦元素后 CDP 键入文本（触发 keydown 的输入框用） |
 | `real_page_press_key` | 按键或组合键（Enter/Tab/Escape/方向键/Control+a…） |
@@ -41,10 +41,11 @@ DSH 插件：让 DSH 的 AI 通过 **CDP 驱动用户真正在用的浏览器**�
 | `real_page_hover` | 鼠标悬停（触发悬停菜单/提示） |
 | `real_page_scroll` | 元素滚入视野，或按方向+像素滚动窗口 |
 | `real_page_wait` | 等待元素可见/文本/URL/JS 条件/固定延时；超时返回 satisfied=false 不抛错 |
-| `real_page_find` | 按选择器列出匹配元素（标签/id/文本/href/值/可见性） |
+| `real_page_find` | 按选择器列出匹配元素（标签/id/文本/href/值/可见性），可用 `frame` 限定 iframe |
 | `real_page_tabs` | 标签页管理：list / new / switch / close |
 | `real_page_network` | 页面网络请求（Performance Resource Timing），可按 URL/类型/状态过滤 |
 | `real_page_upload` | 真实文件上传（CDP DOM.setFileInputFiles） |
+| `real_page_downloads` | **下载跟踪**：监听/列出该浏览器触发过的下载（文件名/URL/字节进度/状态 completed），首次调用激活监听；下载落盘目录默认用户 Downloads（可用 `downloadDir` 指定） |
 | `real_page_console` | 读取页面 console 日志（注入 hook，可清空） |
 
 > 交互层参照 `agent-browser/eve` 与 Cebian 的工具模型：**快照出 `@eN` 元素引用 → 按引用/选择器/坐标操作**，等待语义与 tabs/network 对齐业界标准。
@@ -56,13 +57,14 @@ dsh-real-browser/
 ├── index.js          # 根入口（re-export + cordis 插件入口）
 ├── cordis.patch.yml  # 挂载清单（tools 子路径 + host 裸包名，见下方「挂载到 DSH web profile」）
 ├── allowlist.js      # AI 操作边界：~/.dsh/realbrowser-allowlist.json；isAllowed/assertAllowed/toggleAllowed
-├── cdp.js            # 零依赖 CDP 客户端：list/eval/dom/navigate + 提交态验证选页
+├── cdp.js            # 零依赖 CDP 客户端：list/eval/dom/navigate + 提交态验证选页 + 不可达/端口占用清晰报错
 ├── discover.js       # 运行实例发现（PowerShell 扫进程 → 端口/目录/profile/后台标记）
 ├── env.js            # 环境检测 + 能力模型（镜像 app-kit::browser_paths/profiles/avatar）
 ├── launch.js         # 启动/附加/接管/关闭（镜像 app-kit start_or_connect + 内置护栏）
-├── snapshot.js       # 交互元素快照（ref 编号 + CSS 选择器生成 + 坐标/可见性）
-├── interact.js       # 交互原语：click/fill/type/keys/select/check/hover/scroll/wait/find/tabs/network/upload/console
-├── tools.js          # 24 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed / autoGrant 审批）
+├── snapshot.js       # 交互元素快照（ref 编号 + CSS 选择器生成 + 坐标/可见性；同源 iframe 递归 + 跨源标记）
+├── interact.js       # 交互原语：click/fill/type/keys/select/check/hover/scroll/wait/find/tabs/network/upload/console（frame 解析层）
+├── downloads.js      # 下载跟踪（持久浏览器级会话监听 Browser 下载事件）
+├── tools.js          # 25 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed / autoGrant 审批）
 ├── host.js           # host 服务 realBrowser（typert RPC：detectEnv/listRunning/getAllowlist/setAllowed/launch/close）
 ├── typert.js         # typert RPC 清单（zod codec；服务方法按清单参数顺序位置调用）
 ├── client/           # web 客户端插件源码（React：「浏览器设置」栏目 + dev 徽标）
@@ -102,19 +104,23 @@ dsh-real-browser/
 
 ```powershell
 node smoke.mjs                 # 端到端冒烟（headless，自清理）
-node tests/test-registration.mjs  # 插件形状 + 工具注册（24 个）
+node tests/test-registration.mjs  # 插件形状 + 工具注册（25 个）
 node tests/test-env-tool.mjs     # real_browser_env 工具端到端
 node tests/test-guards.mjs       # 内置护栏（默认目录/不存在目录 快速拒绝）
 node tests/test-host-rpc.mjs     # host typert RPC 位置参数契约（setAllowed 持久化/launch 门控）
 node tests/test-allow.mjs        # 允许列表审批门控（real_browser_allow / launch autoGrant）
 node tests/test-interaction.mjs  # 交互层冒烟（snapshot/click/fill/type/keys/select/check/scroll/wait/find/tabs/network/console）
+node tests/test-iframe.mjs       # iframe 穿透（同源递归快照 + frame 定位 + 跨源拒绝）
+node tests/test-downloads.mjs    # 下载跟踪（真实 headless 下载事件）
 ```
 
 ## 限制与安全
 
 - **默认 profile 目录无法开调试端口**（Chrome/Edge 安全限制，见能力模型）；可驱动的必须是**非默认目录**（RPA 环境、自定义目录）。
+- **iframe 只穿透同源**：快照会收录同源 iframe 的元素（`frame` 字段）并列出跨源 iframe（`crossOriginFrames`）；对跨源 frame 的操作会明确报错（浏览器安全限制，无法从父上下文访问）。
 - **无法附加**未带调试端口启动的浏览器；无端口实例会明确标注。
 - **不自动杀进程**；`force: true` 才接管（含 Edge 后台占位），留给显式决策。
 - **允许列表是 AI 操作边界**：未勾选的配置默认拒绝；AI 可用 `real_browser_allow` 或 `launch autoGrant:true` 发起审批申请，用户批准后自动加入（审批策略为 `never` 或审批服务未挂载时降级为手动勾选指引）。
+- **下载跟踪只记录激活后的事件**：`real_page_downloads` 首次调用才开始监听；启用期间该浏览器的下载会落到 `downloadDir`（默认用户 Downloads）。
 - 真实 profile = 登录态 = 高权限；写回/下单类操作应挂 DSH 审批。
-- 版本：0.4.0。
+- 版本：0.5.0。

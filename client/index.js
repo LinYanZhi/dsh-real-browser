@@ -162,6 +162,15 @@ function BrowserSettings({ api }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // 运行实例 → 命中 profile 的 key（kind\0userDataDir\0profileId）
+  const runningMap = {};
+  for (const i of running) {
+    const k = `${i.kind}\u0000${i.userDataDir || ''}\u0000${i.profileId || ''}`;
+    runningMap[k] = runningMap[k] || [];
+    runningMap[k].push(i);
+  }
+  const runningCount = Object.keys(runningMap).length;
+
   const toggle = useCallback(async (cfg) => {
     const next = !allowedMap[keyOf(cfg)];
     setErr(null);
@@ -181,7 +190,7 @@ function BrowserSettings({ api }) {
         <button type="button" onClick={load} disabled={loading} style={{ fontSize: 12 }}>
           {loading ? '检测中…' : '刷新检测'}
         </button>
-        <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>已允许 {allowedCount}/{allCount} 个配置</span>
+        <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>已允许 {allowedCount}/{allCount} 个配置{runningCount ? ` · ${runningCount} 个配置正在运行` : ''}</span>
       </div>
       <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: '0 0 10px' }}>
         勾选 = 允许 AI 操作该浏览器配置（AI 只能在勾选的配置内启动/驱动浏览器）。头像来自各 profile 的用户配置。
@@ -200,21 +209,17 @@ function BrowserSettings({ api }) {
             <div key={g.userDataDir} style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, color: g.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', margin: '4px 0' }}>■ {g.dirLabel} · {g.userDataDir}</div>
               {g.profiles.map((c) => (
-                <ProfileCard key={keyOf(c)} cfg={c} allowed={allowedMap[keyOf(c)] === true} onToggle={() => toggle(c)} />
+                <ProfileCard key={keyOf(c)} cfg={c} allowed={allowedMap[keyOf(c)] === true} running={runningMap[keyOf(c)] || []} onToggle={() => toggle(c)} />
               ))}
             </div>
           ))}
         </div>
       ))}
-
-      {running.length > 0 && (
-        <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>运行实例: {running.map((i) => `${i.kind}${i.port ? ':' + i.port : ''}`).join('、')}</p>
-      )}
     </div>
   );
 }
 
-function ProfileCard({ cfg, allowed, onToggle }) {
+function ProfileCard({ cfg, allowed, running, onToggle }) {
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: 8, marginBottom: 6, background: 'var(--dsw-alias-bg-module-platform)' }}>
       <div style={{ width: 36, height: 36, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'var(--dsw-alias-interactive-bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -230,6 +235,11 @@ function ProfileCard({ cfg, allowed, onToggle }) {
           <span style={{ color: cfg.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', fontSize: 11, border: '1px solid ' + (cfg.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-border-l3)'), borderRadius: 4, padding: '0 4px' }}>
             {cfg.cdp ? '可CDP' : '不可CDP'}
           </span>
+          {running.length > 0 && (
+            <span style={{ color: 'var(--dsw-alias-state-success-primary)', fontSize: 11, border: '1px solid var(--dsw-alias-state-success-primary)', borderRadius: 4, padding: '0 4px' }}>
+              运行中{running.map((i) => (i.port ? `:${i.port}` : '')).join('')}
+            </span>
+          )}
           {cfg.user_name && <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>{cfg.user_name}</span>}
           {cfg.email && <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>{cfg.email}</span>}
         </div>
