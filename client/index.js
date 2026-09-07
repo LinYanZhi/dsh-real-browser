@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TYPERT } from '../typert.js';
 import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives';
+import { EDGE_LOGO, CHROME_LOGO } from './icons.js';
 
 export const name = 'real-browser-client';
 export const inject = ['remote', 'slots'];
@@ -121,45 +122,19 @@ function DevBrandName() {
 
 // ── 品牌识别：Edge / Chrome ──────────────────────────────────────────────
 const brandOf = (kind) => (kind === 'chrome' ? '#4285f4' : '#0078d4');
-const CHROME_COLORS = '#ea4335 0deg 90deg, #fbbc04 90deg 180deg, #34a853 180deg 270deg, #4285f4 270deg 360deg';
 
-/** Edge / Chrome 品牌圆形图标（纯 CSS，无图片依赖）。 */
+/** Edge / Chrome 官方品牌 logo（内嵌 data URI，与 GLBT app-icons 同款）。 */
 function BrowserIcon({ kind, size = 32 }) {
-  const base = {
-    width: size,
-    height: size,
-    borderRadius: '50%',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    overflow: 'hidden',
-  };
-  if (kind === 'chrome') {
-    return (
-      <span style={{ ...base, background: `conic-gradient(${CHROME_COLORS})`, boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} title="Google Chrome">
-        <span style={{ width: '42%', height: '42%', borderRadius: '50%', background: '#fff', boxShadow: '0 0 0 1px rgba(0,0,0,.08)' }} />
-      </span>
-    );
-  }
+  const src = kind === 'chrome' ? CHROME_LOGO : EDGE_LOGO;
+  const label = kind === 'chrome' ? 'Google Chrome' : 'Microsoft Edge';
   return (
-    <span
-      style={{
-        ...base,
-        background: 'linear-gradient(135deg, #0a6ab3 0%, #1d9bf0 100%)',
-        color: '#fff',
-        fontWeight: 700,
-        fontStyle: 'italic',
-        fontSize: size * 0.58,
-        fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
-        lineHeight: 1,
-        paddingBottom: size * 0.04,
-        boxShadow: '0 1px 3px rgba(0,0,0,.2)',
-      }}
-      title="Microsoft Edge"
-    >
-      e
-    </span>
+    <img
+      src={src}
+      alt={label}
+      title={label}
+      draggable={false}
+      style={{ width: size, height: size, objectFit: 'contain', flexShrink: 0 }}
+    />
   );
 }
 
@@ -409,7 +384,7 @@ function ProfileCard({ cfg, accent, allowed, running, onToggle }) {
       {/* 头像：圆形 + 品牌色描边 */}
       <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${accent}66`, background: `linear-gradient(135deg, ${accent}22, ${accent}0d)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {cfg.avatar ? (
-          <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 44, height: 44, objectFit: 'cover' }} />
+          <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: '50%' }} />
         ) : (
           <span style={{ fontWeight: 700, fontSize: 18, color: accent }}>{(cfg.profileName || '?').charAt(0).toUpperCase()}</span>
         )}
