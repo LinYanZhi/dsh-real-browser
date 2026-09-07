@@ -8,16 +8,23 @@ import path from 'node:path';
 import { apply } from '../host.js';
 
 const FILE = path.join(os.homedir(), '.dsh', 'realbrowser-allowlist.json');
+const POLICY = path.join(os.homedir(), '.dsh', 'realbrowser-policy.json');
 const AI_DIR = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'AI');
 const RPA_DIR = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data Rpa');
 const EXE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 
 const backup = existsSync(FILE) ? readFileSync(FILE, 'utf8') : null;
+const policyBackup = existsSync(POLICY) ? readFileSync(POLICY, 'utf8') : null;
 const restore = () => {
   if (backup === null) {
     try { writeFileSync(FILE, JSON.stringify({ environments: [] }, null, 2)); } catch {}
   } else {
     writeFileSync(FILE, backup);
+  }
+  if (policyBackup === null) {
+    try { writeFileSync(POLICY, JSON.stringify({ deny: [], requireApproval: [] }, null, 2)); } catch {}
+  } else {
+    writeFileSync(POLICY, policyBackup);
   }
 };
 
@@ -77,9 +84,27 @@ try {
   const run = await svc.listRunning();
   check('listRunning shape', Array.isArray(run.instances), JSON.stringify(Object.keys(run)));
 
+  // 7. URL policy RPC (positional: kind, pattern)
+  const pol0 = await svc.getPolicy();
+  check('getPolicy shape', Array.isArray(pol0.deny) && Array.isArray(pol0.requireApproval), JSON.stringify(pol0));
+  const added = await svc.policyAdd('deny', '*pay*');
+  check('policyAdd persists', added.policy?.deny?.includes('*pay*'), JSON.stringify(added.policy));
+  const pol1 = await svc.getPolicy();
+  check('getPolicy reflects add', pol1.deny.includes('*pay*'));
+  const removed = await svc.policyRemove('deny', '*pay*');
+  check('policyRemove persists', !removed.policy?.deny?.includes('*pay*'), JSON.stringify(removed.policy));
+
+  // 8. work mode RPC (positional: enabled)
+  const wm0 = await svc.setWorkMode(true);
+  check('setWorkMode(true) returns sensitive', wm0.sensitive === true, JSON.stringify(wm0));
+  const wm1 = await svc.getWorkMode();
+  check('getWorkMode reflects set', wm1.sensitive === true);
+  const wm2 = await svc.setWorkMode(false);
+  check('setWorkMode(false) resets', wm2.sensitive === false);
+
   console.log(failures === 0 ? '\nALL HOST RPC CHECKS PASS ✅' : `\n${failures} CHECK(S) FAILED ❌`);
   process.exitCode = failures === 0 ? 0 : 1;
 } finally {
   restore();
-  console.log('allowlist file restored.');
+  console.log('allowlist + policy files restored.');
 }

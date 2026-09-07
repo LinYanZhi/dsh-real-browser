@@ -61,6 +61,11 @@ export async function apply(ctx) {
     listRunning: () => call('listRunning'),
     getAllowlist: () => call('getAllowlist'),
     setAllowed: (cfg) => call('setAllowed', cfg.kind, cfg.userDataDir, cfg.profileId, Boolean(cfg.allowed)),
+    getPolicy: () => call('getPolicy'),
+    policyAdd: (kind, pattern) => call('policyAdd', kind, pattern),
+    policyRemove: (kind, pattern) => call('policyRemove', kind, pattern),
+    getWorkMode: () => call('getWorkMode'),
+    setWorkMode: (enabled) => call('setWorkMode', Boolean(enabled)),
   };
 
   ctx.slots.inject(
@@ -118,6 +123,10 @@ function BrowserSettings({ api }) {
   const [browsers, setBrowsers] = useState([]); // 按浏览器分组：{kind, name, version, installed, groups:[{userDataDir, cdp, dirLabel, profiles:[cfg]}]}
   const [allowedMap, setAllowedMap] = useState({});
   const [running, setRunning] = useState([]);
+  const [policy, setPolicy] = useState({ deny: [], requireApproval: [] });
+  const [sensitive, setSensitive] = useState(false);
+  const [newPattern, setNewPattern] = useState('');
+  const [newKind, setNewKind] = useState('deny');
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -150,6 +159,10 @@ function BrowserSettings({ api }) {
       setAllowedMap(Object.fromEntries(all.map((c) => [keyOf(c), allowed.has(keyOf(c))])));
       const r = await api.listRunning();
       setRunning((r && r.instances) || []);
+      const pl = await api.getPolicy();
+      setPolicy({ deny: (pl && pl.deny) || [], requireApproval: (pl && pl.requireApproval) || [] });
+      const wm = await api.getWorkMode();
+      setSensitive(!!(wm && wm.sensitive));
     } catch (e) {
       setErr(String((e && e.message) || e));
     } finally {
@@ -177,6 +190,33 @@ function BrowserSettings({ api }) {
     } catch (e) { setErr(String((e && e.message) || e)); }
   }, [api, allowedMap]);
 
+  const toggleWorkMode = useCallback(async () => {
+    setErr(null);
+    try {
+      const wm = await api.setWorkMode(!sensitive);
+      setSensitive(!!(wm && wm.sensitive));
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, sensitive]);
+
+  const addPolicyRule = useCallback(async () => {
+    const pattern = newPattern.trim();
+    if (!pattern) return;
+    setErr(null);
+    try {
+      const pl = await api.policyAdd(newKind, pattern);
+      setPolicy({ deny: (pl && pl.policy && pl.policy.deny) || [], requireApproval: (pl && pl.policy && pl.policy.requireApproval) || [] });
+      setNewPattern('');
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, newPattern, newKind]);
+
+  const removePolicyRule = useCallback(async (kind, pattern) => {
+    setErr(null);
+    try {
+      const pl = await api.policyRemove(kind, pattern);
+      setPolicy({ deny: (pl && pl.policy && pl.policy.deny) || [], requireApproval: (pl && pl.policy && pl.policy.requireApproval) || [] });
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api]);
+
   const allCount = browsers.reduce((n, b) => n + b.groups.reduce((m, g) => m + g.profiles.length, 0), 0);
   const allowedCount = Object.values(allowedMap).filter(Boolean).length;
 
@@ -187,6 +227,12 @@ function BrowserSettings({ api }) {
         <button type="button" onClick={load} disabled={loading} style={{ fontSize: 12 }}>
           {loading ? '检测中…' : '刷新检测'}
         </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={sensitive} onChange={toggleWorkMode} style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }} />
+          <span style={{ color: sensitive ? 'var(--dsw-alias-state-warning-primary, #f97316)' : 'var(--dsw-alias-label-tertiary)' }}>
+            {sensitive ? '凭证隔离 ON（值不回显给 AI）' : '凭证隔离 Work Mode'}
+          </span>
+        </label>
         <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>已允许 {allowedCount}/{allCount} 个配置{runningCount ? ` · ${runningCount} 个配置正在运行` : ''}</span>
       </div>
       <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: '0 0 10px' }}>
@@ -212,7 +258,48 @@ function BrowserSettings({ api }) {
           ))}
         </div>
       ))}
+
+      {/* URL 策略守卫（AI 操作边界的第二层） */}
+      <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 10, marginTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>URL 策略守卫</span>
+          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>deny 硬拦截 AI 操作匹配 URL；requireApproval 让匹配操作先弹审批（glob-lite：* = 任意串，不写 * = 精确匹配）</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+          <select value={newKind} onChange={(e) => setNewKind(e.target.value)} style={{ fontSize: 12 }}>
+            <option value="deny">deny</option>
+            <option value="requireApproval">requireApproval</option>
+          </select>
+          <input
+            value={newPattern}
+            onChange={(e) => setNewPattern(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addPolicyRule(); }}
+            placeholder="如 *checkout* 或 https://*.bank.com/*"
+            style={{ flex: 1, minWidth: 180, fontSize: 12 }}
+          />
+          <button type="button" onClick={addPolicyRule} style={{ fontSize: 12 }}>添加规则</button>
+        </div>
+        {policy.deny.length === 0 && policy.requireApproval.length === 0 && (
+          <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>无规则 —— AI 可操作任意目标 URL（仍受上方「允许列表」的环境边界约束）。</p>
+        )}
+        {policy.deny.map((p) => (
+          <RuleChip key={`deny-${p}`} label={`deny: ${p}`} tone="error" onRemove={() => removePolicyRule('deny', p)} />
+        ))}
+        {policy.requireApproval.map((p) => (
+          <RuleChip key={`ra-${p}`} label={`requireApproval: ${p}`} tone="warn" onRemove={() => removePolicyRule('requireApproval', p)} />
+        ))}
+      </div>
     </div>
+  );
+}
+
+function RuleChip({ label, tone, onRemove }) {
+  const color = tone === 'error' ? 'var(--dsw-alias-state-error-primary)' : '#f97316';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${color}`, color, borderRadius: 4, padding: '2px 6px', margin: '0 6px 6px 0', fontSize: 12 }}>
+      {label}
+      <button type="button" onClick={onRemove} style={{ border: 'none', background: 'none', cursor: 'pointer', color, fontSize: 12, padding: 0 }} title="移除规则">✕</button>
+    </span>
   );
 }
 

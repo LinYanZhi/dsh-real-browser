@@ -22,6 +22,8 @@ import { detectEnvironment } from './env.js';
 import { discoverRunningBrowsers } from './discover.js';
 import { launchRealBrowser, closeRealBrowser } from './launch.js';
 import { readAllowlist, toggleAllowed, assertAllowed, inferKind } from './allowlist.js';
+import { readPolicy, addRule, removeRule } from './policy.js';
+import { getWorkMode, setWorkMode } from './workmode.js';
 
 /** Plugin name used by loader diagnostics. */
 export const name = 'real-browser-host';
@@ -58,6 +60,26 @@ export function apply(ctx) {
     },
     async close(port) {
       return { killed: closeRealBrowser(port) };
+    },
+    /** 当前 URL 策略（deny / requireApproval 规则）。 */
+    async getPolicy() {
+      return readPolicy();
+    },
+    /** 新增一条策略规则（用户/设置页操作，无审批——用户即权威）。 */
+    async policyAdd(kind, pattern) {
+      return { policy: addRule(kind, pattern) };
+    },
+    /** 移除一条策略规则（设置页操作，无审批）。 */
+    async policyRemove(kind, pattern) {
+      return { policy: removeRule(kind, pattern) };
+    },
+    /** 当前凭证隔离 Work Mode。 */
+    async getWorkMode() {
+      return { sensitive: getWorkMode() };
+    },
+    /** 切换凭证隔离 Work Mode。 */
+    async setWorkMode(enabled) {
+      return { sensitive: setWorkMode(Boolean(enabled)) };
     },
   };
 
