@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { EDGE_PRESET_AVATARS } from './edge-avatars.js';
 
 const LOCAL_APPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const SYSTEM_DOWNLOAD = path.join(os.homedir(), 'Downloads');
@@ -310,10 +311,20 @@ function readAvatarBase64(profilePath, isEdge, userDataDir, info) {
     }
     if (typeof iconUrl === 'string' && iconUrl.includes('IDR_PROFILE_AVATAR_')) {
       const n = Number(iconUrl.slice(iconUrl.indexOf('IDR_PROFILE_AVATAR_') + 'IDR_PROFILE_AVATAR_'.length));
+      // Chrome 路径：新版 Chrome/Edge(151+) 会把"使用过的"预设头像缓存到
+      // {User Data}\Avatars\{文件名}（Chromium 的 index->文件名映射）。
       const fname = AVATAR_INDEX_FILES[n];
       if (fname) {
         const cached = readFileBytes(path.join(userDataDir, 'Avatars', fname));
         if (cached) return attempt(cached, 'image/png', false);
+      }
+      // Edge 路径：Edge 预设头像没有 {User Data}\Avatars 缓存目录，头像图片只存在
+      // Edge 二进制的 .pak 资源里（按需合成）——本地文件系统找不到，只能内嵌资源。
+      // Edge 的 index 语义与 Chromium 不同（如 Edge 21=狗/22=猫/24=刺猬/25=宇航员…），
+      // 见 edge-avatars.js（提取自 GLBT app-kit edge_avatars.rs，来源 Edge 设置页头像选择器）。
+      if (isEdge) {
+        const b64 = EDGE_PRESET_AVATARS[n];
+        if (b64) return attempt(Buffer.from(b64, 'base64'), 'image/png', false);
       }
     }
   }

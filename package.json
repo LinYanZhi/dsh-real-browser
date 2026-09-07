@@ -29,6 +29,7 @@
     "cdp.js",
     "discover.js",
     "env.js",
+    "edge-avatars.js",
     "launch.js",
     "snapshot.js",
     "interact.js",
