@@ -16,6 +16,7 @@
     "./stealth": "./stealth.js",
     "./policy": "./policy.js",
     "./workmode": "./workmode.js",
+    "./captcha": "./captcha.js",
     "./host": "./host.js",
     "./typert": "./typert.js",
     "./client": "./client.js",
@@ -33,6 +34,7 @@
     "stealth.js",
     "policy.js",
     "workmode.js",
+    "captcha.js",
     "downloads.js",
     "tools.js",
     "host.js",
@@ -53,6 +55,7 @@
     "test:stealth": "node tests/test-stealth.mjs",
     "test:policy": "node tests/test-policy.mjs",
     "test:workmode": "node tests/test-vault.mjs",
+    "test:captcha": "node tests/test-captcha.mjs",
     "test:interact": "node tests/test-interaction.mjs",
     "test:iframe": "node tests/test-iframe.mjs",
     "test:downloads": "node tests/test-downloads.mjs"

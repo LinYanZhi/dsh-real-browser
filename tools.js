@@ -29,6 +29,7 @@ import { snapshotInteractive } from './snapshot.js';
 import { auditStealth, cleanupStealthArtifacts } from './stealth.js';
 import { listDownloads, stopDownloadTracking } from './downloads.js';
 import { matchPolicy, readPolicy, addRule, removeRule } from './policy.js';
+import { detectCaptcha } from './captcha.js';
 import {
   clickElement, hoverElement, fillElement, typeElement, typeSecret, pressKey, selectOption, checkElement,
   scrollPage, waitFor, findElements, listTabs, newTab, switchTab, closeTab,
@@ -911,6 +912,38 @@ export function apply(ctx) {
     timeoutMs: 20000,
     isConcurrencySafe: () => true,
     async execute(args) { return readConsole(args.port, { clear: args.clear, urlSubstring: args.urlSubstring }); },
+  }));
+
+  register(defineTool({
+    name: 'real_page_captcha',
+    description:
+      'Scan the page in a real browser for captcha widgets: reCAPTCHA v2/v3, hCaptcha, Cloudflare Turnstile, Geetest, NetEase Yidun, Aliyun noCaptcha, and generic iframe/image captcha heuristics. Each hit carries a confidence (iframe-family matches ~0.95, DOM widgets ~0.7-0.8, generic ~0.5). Passive read-only scan. When verdict=detected, the AI should STOP automated steps and let the user solve the captcha in the browser window — this is the high-frequency RPA shop-login pain point.',
+    parameters: {
+      port: { type: 'number', required: true, description: 'CDP debug port of the real browser.' },
+      urlSubstring: { type: 'string', description: 'Pick the tab whose url/title contains this; default = preferred page.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          url: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+          verdict: { type: 'string', enum: ['none', 'detected'] },
+          detected: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+      },
+      render: (_args, value) => {
+        if (value.verdict === 'none') return text(`No captcha detected on ${value.url || '(page)'}.`);
+        const lines = [`Captcha DETECTED on ${value.url || '(page)'} — stop automated steps and let the user solve it:`];
+        for (const h of value.detected) lines.push(`  - ${h.type} (confidence ${h.confidence}): ${h.detail}`);
+        return text(lines.join('\n'));
+      },
+    },
+    timeoutMs: 20000,
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      return detectCaptcha(args.port, { urlSubstring: args.urlSubstring });
+    },
   }));
 
   register(defineTool({
