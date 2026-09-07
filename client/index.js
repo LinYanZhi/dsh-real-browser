@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { TYPERT } from '../typert.js';
-import { BrandWordmark } from '@deepseek-ai/dsh-client-ui-primitives';
+import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives';
 
 export const name = 'real-browser-client';
 export const inject = ['remote', 'slots'];
@@ -80,41 +80,38 @@ export async function apply(ctx) {
     },
   );
 
-  // 开发环境标记：仅在 dev DSH（realbrowser-dev profile, 端口 3090）时，
-  // 在左上角品牌名旁加「开发测试」徽标，便于与主环境区分。主环境(3080)不显示。
+  // 开发环境标记：仅在 dev DSH（realbrowser-dev profile, 端口 3090）时生效。
+  // 不显示「开发测试」文字徽标，改为把左上角 dsh logo 染成橙色，便于与主环境区分。
+  // 主环境(3080)不显示。
   const isDev = typeof window !== 'undefined' && window.location.port === '3090';
   if (isDev) {
-    console.log('[dsh-real-browser] dev environment detected — adding brand badge');
+    console.log('[dsh-real-browser] dev environment detected — orange brand mark');
+    ctx.slots.inject('sidebar.brand.mark', () =>
+      ctx.slots.register(
+        { name: 'sidebar.brand.mark', id: 'real-browser-dev-mark', order: -1000 },
+        DevBrandMark,
+      ),
+    );
     ctx.slots.inject('sidebar.brand.name', () =>
       ctx.slots.register(
-        { name: 'sidebar.brand.name', id: 'real-browser-dev-badge', order: -1000 },
+        { name: 'sidebar.brand.name', id: 'real-browser-dev-name', order: -1000 },
         DevBrandName,
       ),
     );
   }
 }
 
-function DevBrandName() {
+function DevBrandMark({ size }) {
+  // FishLogo 用 currentColor 填充：外层 span 设橙色即可把左上角 logo 染成橙色。
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-      <BrandWordmark includeMark={false} />
-      <span
-        style={{
-          marginLeft: 8,
-          fontSize: 11,
-          lineHeight: '16px',
-          padding: '1px 8px',
-          borderRadius: 9,
-          background: 'var(--dsw-alias-state-warn-primary)',
-          color: '#fff',
-          whiteSpace: 'nowrap',
-          letterSpacing: 1,
-        }}
-      >
-        开发测试
-      </span>
+    <span style={{ color: '#f97316', display: 'inline-flex' }}>
+      <FishLogo size={size} />
     </span>
   );
+}
+
+function DevBrandName() {
+  return <BrandWordmark includeMark={false} />;
 }
 
 function BrowserSettings({ api }) {
