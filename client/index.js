@@ -119,6 +119,65 @@ function DevBrandName() {
   return <BrandWordmark includeMark={false} />;
 }
 
+// ── 品牌识别：Edge / Chrome ──────────────────────────────────────────────
+const brandOf = (kind) => (kind === 'chrome' ? '#4285f4' : '#0078d4');
+const CHROME_COLORS = '#ea4335 0deg 90deg, #fbbc04 90deg 180deg, #34a853 180deg 270deg, #4285f4 270deg 360deg';
+
+/** Edge / Chrome 品牌圆形图标（纯 CSS，无图片依赖）。 */
+function BrowserIcon({ kind, size = 32 }) {
+  const base = {
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    overflow: 'hidden',
+  };
+  if (kind === 'chrome') {
+    return (
+      <span style={{ ...base, background: `conic-gradient(${CHROME_COLORS})`, boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} title="Google Chrome">
+        <span style={{ width: '42%', height: '42%', borderRadius: '50%', background: '#fff', boxShadow: '0 0 0 1px rgba(0,0,0,.08)' }} />
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        ...base,
+        background: 'linear-gradient(135deg, #0a6ab3 0%, #1d9bf0 100%)',
+        color: '#fff',
+        fontWeight: 700,
+        fontStyle: 'italic',
+        fontSize: size * 0.58,
+        fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
+        lineHeight: 1,
+        paddingBottom: size * 0.04,
+        boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+      }}
+      title="Microsoft Edge"
+    >
+      e
+    </span>
+  );
+}
+
+// 少量 hover / 动效依赖类选择器（inline style 不支持 :hover）
+const UI_CSS = `
+.rb-card { transition: border-color .15s, box-shadow .15s; }
+.rb-card:hover { border-color: var(--dsw-alias-border-l3, #d0d7de); box-shadow: 0 2px 10px rgba(0,0,0,.07); }
+.rb-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex-shrink: 0; user-select: none; }
+.rb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.rb-switch .track { position: relative; width: 34px; height: 18px; border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover, #e5e9ef); transition: background .18s; display: inline-block; }
+.rb-switch .thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .18s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.rb-switch input:checked + .track { background: #2da44e; }
+.rb-switch input:checked + .track .thumb { left: 18px; }
+.rb-switch input:focus-visible + .track { box-shadow: 0 0 0 2px var(--dsw-alias-brand-primary, #4c8bf5); }
+.rb-chip-x { border: none; background: none; cursor: pointer; padding: 0; line-height: 1; }
+.rb-chip-x:hover { opacity: .7; }
+`;
+
 function BrowserSettings({ api }) {
   const [browsers, setBrowsers] = useState([]); // 按浏览器分组：{kind, name, version, installed, groups:[{userDataDir, cdp, dirLabel, profiles:[cfg]}]}
   const [allowedMap, setAllowedMap] = useState({});
@@ -221,52 +280,91 @@ function BrowserSettings({ api }) {
   const allowedCount = Object.values(allowedMap).filter(Boolean).length;
 
   return (
-    <div style={{ padding: '4px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-        <strong>浏览器配置</strong>
-        <button type="button" onClick={load} disabled={loading} style={{ fontSize: 12 }}>
-          {loading ? '检测中…' : '刷新检测'}
-        </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
-          <input type="checkbox" checked={sensitive} onChange={toggleWorkMode} style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }} />
-          <span style={{ color: sensitive ? 'var(--dsw-alias-state-warning-primary, #f97316)' : 'var(--dsw-alias-label-tertiary)' }}>
-            {sensitive ? '凭证隔离 ON（值不回显给 AI）' : '凭证隔离 Work Mode'}
+    <>
+      <style>{UI_CSS}</style>
+      <div style={{ padding: '4px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 14 }}>浏览器配置</strong>
+          <button type="button" onClick={load} disabled={loading} style={{ fontSize: 12, borderRadius: 6, padding: '3px 10px', cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
+            {loading ? '检测中…' : '↻ 刷新检测'}
+          </button>
+          <label className="rb-switch" title="凭证隔离：开启后填密环节的值不回显给 AI（密码框任何模式下都不回显）">
+            <input type="checkbox" checked={sensitive} onChange={toggleWorkMode} />
+            <span className="track"><span className="thumb" /></span>
+            <span style={{ fontSize: 12, color: sensitive ? '#f97316' : 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', fontWeight: sensitive ? 600 : 400 }}>
+              {sensitive ? '凭证隔离 ON · 值不回显' : '凭证隔离 Work Mode'}
+            </span>
+          </label>
+          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginLeft: 'auto' }}>
+            已允许 <b style={{ color: allowedCount === allCount && allCount > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedCount}</b>/{allCount} 个配置{runningCount ? ` · ${runningCount} 个配置运行中` : ''}
           </span>
-        </label>
-        <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>已允许 {allowedCount}/{allCount} 个配置{runningCount ? ` · ${runningCount} 个配置正在运行` : ''}</span>
-      </div>
-      <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: '0 0 10px' }}>
-        勾选 = 允许 AI 操作该浏览器配置（AI 只能在勾选的配置内启动/驱动浏览器）。头像来自各 profile 的用户配置。
-      </p>
-      {err && <p style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 }}>错误: {err}</p>}
-      {allCount === 0 && !err && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>加载中…</p>}
+        </div>
+        <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: '0 0 12px', lineHeight: 1.6 }}>
+          勾选 = 允许 AI 操作该浏览器配置（AI 只能在勾选的配置内启动/驱动浏览器）。Edge 与 Chrome 分区展示，头像来自各 profile 的用户配置。
+        </p>
+        {err && <p style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, background: 'var(--dsw-alias-state-error-primary, #d1242f)15', borderRadius: 6, padding: '6px 10px' }}>错误: {err}</p>}
+        {allCount === 0 && !err && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>加载中…</p>}
 
-      {browsers.map((b) => (
-        <div key={b.kind} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</span>
-            {b.installed ? <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>v{b.version || '?'}</span> : <span style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 }}>未安装</span>}
-          </div>
-          {!b.installed && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>未检测到该浏览器。</p>}
-          {b.groups.map((g) => (
-            <div key={g.userDataDir} style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: g.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', margin: '4px 0' }}>■ {g.dirLabel} · {g.userDataDir}</div>
-              {g.profiles.map((c) => (
-                <ProfileCard key={keyOf(c)} cfg={c} allowed={allowedMap[keyOf(c)] === true} running={runningMap[keyOf(c)] || []} onToggle={() => toggle(c)} />
+      {browsers.map((b) => {
+        const brand = brandOf(b.kind);
+        const cnt = b.groups.reduce((n, g) => n + g.profiles.length, 0);
+        const allowedN = b.groups.reduce((n, g) => n + g.profiles.filter((c) => allowedMap[keyOf(c)] === true).length, 0);
+        const anyRunning = b.groups.some((g) => g.profiles.some((c) => (runningMap[keyOf(c)] || []).length > 0));
+        return (
+          <div key={b.kind} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, marginBottom: 12, overflow: 'hidden', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
+            {/* 浏览器品牌头 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderLeft: `4px solid ${brand}`, borderBottom: '1px solid var(--dsw-alias-border-l1)' }}>
+              <BrowserIcon kind={b.kind} size={38} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{b.name}</span>
+                  {b.installed ? (
+                    <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-interactive-bg-hover)', borderRadius: 4, padding: '1px 6px' }}>v{b.version || '?'}</span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-error-primary)', border: '1px solid var(--dsw-alias-state-error-primary)', borderRadius: 4, padding: '1px 6px' }}>未安装</span>
+                  )}
+                  {anyRunning && <span style={{ fontSize: 11, color: '#2da44e', border: '1px solid #2da44e', borderRadius: 10, padding: '0 6px' }}>● 有实例运行</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', marginTop: 2 }}>
+                  {b.kind === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'}{b.installed ? '' : ' · 未检测到安装'}
+                </div>
+              </div>
+              {b.installed && (
+                <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>
+                  已允许 <b style={{ color: allowedN === cnt && cnt > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedN}</b>/{cnt}
+                </span>
+              )}
+            </div>
+            {/* 主体：分组 + profile 卡片 */}
+            <div style={{ padding: '10px 14px 12px' }}>
+              {!b.installed && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>未检测到该浏览器。</p>}
+              {b.groups.map((g, gi) => (
+                <div key={g.userDataDir} style={{ marginBottom: gi === b.groups.length - 1 ? 0 : 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '6px 0 8px' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.cdp ? '#2da44e' : 'var(--dsw-alias-label-tertiary)', flexShrink: 0 }} />
+                    <span style={{ color: g.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {g.cdp ? '可 CDP 驱动' : '默认目录 · 不可 CDP'}
+                    </span>
+                    <span style={{ color: 'var(--dsw-alias-label-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.userDataDir}>{g.userDataDir}</span>
+                  </div>
+                  {g.profiles.map((c) => (
+                    <ProfileCard key={keyOf(c)} cfg={c} accent={brand} allowed={allowedMap[keyOf(c)] === true} running={runningMap[keyOf(c)] || []} onToggle={() => toggle(c)} />
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
-        </div>
-      ))}
+          </div>
+        );
+      })}
 
       {/* URL 策略守卫（AI 操作边界的第二层） */}
-      <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 10, marginTop: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>URL 策略守卫</span>
-          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>deny 硬拦截 AI 操作匹配 URL；requireApproval 让匹配操作先弹审批（glob-lite：* = 任意串，不写 * = 精确匹配）</span>
+      <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: '12px 14px', marginTop: 4, background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>URL 策略守卫</span>
+          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>deny 硬拦截 AI 操作匹配 URL；requireApproval 让匹配操作先弹审批（* = 任意串，不写 * = 精确匹配）</span>
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-          <select value={newKind} onChange={(e) => setNewKind(e.target.value)} style={{ fontSize: 12 }}>
+          <select value={newKind} onChange={(e) => setNewKind(e.target.value)} style={{ fontSize: 12, borderRadius: 6, padding: '4px 6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
             <option value="deny">deny</option>
             <option value="requireApproval">requireApproval</option>
           </select>
@@ -275,9 +373,9 @@ function BrowserSettings({ api }) {
             onChange={(e) => setNewPattern(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addPolicyRule(); }}
             placeholder="如 *checkout* 或 https://*.bank.com/*"
-            style={{ flex: 1, minWidth: 180, fontSize: 12 }}
+            style={{ flex: 1, minWidth: 180, fontSize: 12, borderRadius: 6, padding: '4px 8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}
           />
-          <button type="button" onClick={addPolicyRule} style={{ fontSize: 12 }}>添加规则</button>
+          <button type="button" onClick={addPolicyRule} style={{ fontSize: 12, borderRadius: 6, padding: '4px 12px', cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>添加规则</button>
         </div>
         {policy.deny.length === 0 && policy.requireApproval.length === 0 && (
           <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>无规则 —— AI 可操作任意目标 URL（仍受上方「允许列表」的环境边界约束）。</p>
@@ -290,54 +388,60 @@ function BrowserSettings({ api }) {
         ))}
       </div>
     </div>
+    </>
   );
 }
 
 function RuleChip({ label, tone, onRemove }) {
   const color = tone === 'error' ? 'var(--dsw-alias-state-error-primary)' : '#f97316';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${color}`, color, borderRadius: 4, padding: '2px 6px', margin: '0 6px 6px 0', fontSize: 12 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${color}55`, background: `${color}14`, color, borderRadius: 10, padding: '2px 8px', margin: '0 6px 6px 0', fontSize: 12, fontFamily: 'monospace' }}>
       {label}
-      <button type="button" onClick={onRemove} style={{ border: 'none', background: 'none', cursor: 'pointer', color, fontSize: 12, padding: 0 }} title="移除规则">✕</button>
+      <button type="button" className="rb-chip-x" onClick={onRemove} style={{ color, fontSize: 12 }} title="移除规则">✕</button>
     </span>
   );
 }
 
-function ProfileCard({ cfg, allowed, running, onToggle }) {
+function ProfileCard({ cfg, accent, allowed, running, onToggle }) {
+  const portText = running.map((i) => (i.port ? `:${i.port}` : '')).join('');
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: 8, marginBottom: 6, background: 'var(--dsw-alias-bg-module-platform)' }}>
-      <div style={{ width: 36, height: 36, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'var(--dsw-alias-interactive-bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div className="rb-card" style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
+      {/* 头像：圆形 + 品牌色描边 */}
+      <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${accent}66`, background: `linear-gradient(135deg, ${accent}22, ${accent}0d)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {cfg.avatar ? (
-          <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 36, height: 36, objectFit: 'cover' }} />
+          <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 44, height: 44, objectFit: 'cover' }} />
         ) : (
-          <span style={{ fontWeight: 700, color: 'var(--dsw-alias-label-secondary)' }}>{(cfg.profileName || '?').charAt(0).toUpperCase()}</span>
+          <span style={{ fontWeight: 700, fontSize: 18, color: accent }}>{(cfg.profileName || '?').charAt(0).toUpperCase()}</span>
         )}
       </div>
+      {/* 信息 */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600 }}>{cfg.profileName}</span>
-          <span style={{ color: cfg.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', fontSize: 11, border: '1px solid ' + (cfg.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-border-l3)'), borderRadius: 4, padding: '0 4px' }}>
+          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{cfg.profileName}</span>
+          <span style={{ fontSize: 11, color: cfg.cdp ? '#2da44e' : 'var(--dsw-alias-label-tertiary)', border: `1px solid ${cfg.cdp ? '#2da44e' : 'var(--dsw-alias-border-l3)'}`, borderRadius: 10, padding: '0 6px', whiteSpace: 'nowrap' }}>
             {cfg.cdp ? '可CDP' : '不可CDP'}
           </span>
           {running.length > 0 && (
-            <span style={{ color: 'var(--dsw-alias-state-success-primary)', fontSize: 11, border: '1px solid var(--dsw-alias-state-success-primary)', borderRadius: 4, padding: '0 4px' }}>
-              运行中{running.map((i) => (i.port ? `:${i.port}` : '')).join('')}
-            </span>
+            <span style={{ fontSize: 11, color: '#2da44e', background: '#2da44e1a', borderRadius: 10, padding: '0 6px', whiteSpace: 'nowrap' }}>● 运行中{portText}</span>
           )}
           {cfg.user_name && <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>{cfg.user_name}</span>}
           {cfg.email && <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>{cfg.email}</span>}
         </div>
-        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginTop: 2 }}>
-          Profile ID <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }}>{cfg.profileId}</code>
-          {' · '}下载目录 <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }} title={cfg.download_dir}>{cfg.download_dir}</code>
+        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ whiteSpace: 'nowrap' }}>Profile <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }}>{cfg.profileId}</code></span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }} title={cfg.download_dir}>
+            下载 <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }}>{cfg.download_dir}</code>
+          </span>
         </div>
-        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, wordBreak: 'break-all' }} title={cfg.path}>
+        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cfg.path}>
           {cfg.path}
         </div>
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
-        <input type="checkbox" checked={allowed} onChange={onToggle} style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }} />
-        允许 AI
+      {/* 允许 AI switch */}
+      <label className="rb-switch" title={allowed ? '已允许 AI 操作该配置，点击撤销' : '允许 AI 操作该配置'}>
+        <input type="checkbox" checked={allowed} onChange={onToggle} />
+        <span className="track"><span className="thumb" /></span>
+        <span style={{ fontSize: 12, color: allowed ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>允许 AI</span>
       </label>
     </div>
   );
