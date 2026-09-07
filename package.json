@@ -15,6 +15,7 @@
     "./interact": "./interact.js",
     "./stealth": "./stealth.js",
     "./policy": "./policy.js",
+    "./workmode": "./workmode.js",
     "./host": "./host.js",
     "./typert": "./typert.js",
     "./client": "./client.js",
@@ -31,6 +32,7 @@
     "interact.js",
     "stealth.js",
     "policy.js",
+    "workmode.js",
     "downloads.js",
     "tools.js",
     "host.js",
@@ -50,6 +52,7 @@
     "test:allow": "node tests/test-allow.mjs",
     "test:stealth": "node tests/test-stealth.mjs",
     "test:policy": "node tests/test-policy.mjs",
+    "test:workmode": "node tests/test-vault.mjs",
     "test:interact": "node tests/test-interaction.mjs",
     "test:iframe": "node tests/test-iframe.mjs",
     "test:downloads": "node tests/test-downloads.mjs"

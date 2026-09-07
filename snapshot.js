@@ -12,6 +12,7 @@
  */
 
 import { evaluateJs } from './cdp.js';
+import { getWorkMode } from './workmode.js';
 
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'listbox',
@@ -65,6 +66,9 @@ const COLLECT_SCRIPT = `(() => {
     return parts.join(' > ');
   };
   const nameOf = (el) => {
+    // Credential isolation: a password field is always labeled (password) —
+    // before placeholder/title, so neither its value nor its semantics leak.
+    if (el.tagName === 'INPUT' && (el.type === 'password')) return '(password)';
     if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
     if (el.getAttribute('placeholder')) return el.getAttribute('placeholder');
     if (el.getAttribute('title')) return el.getAttribute('title');
@@ -97,7 +101,11 @@ const COLLECT_SCRIPT = `(() => {
         role: node.getAttribute('role') || undefined,
         name: nameOf(node) || undefined,
         type: node.getAttribute('type') || undefined,
-        value: (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') ? node.value : undefined,
+        // Credential isolation: password values are masked IN-PAGE (never
+        // leave the browser); sensitive work mode masks every field value.
+        value: (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA')
+          ? (node.type === 'password' ? '[redacted]' : node.value)
+          : undefined,
         visible: visible(node),
         x: Math.round(r.left + r.width / 2 + ox),
         y: Math.round(r.top + r.height / 2 + oy),
@@ -139,7 +147,14 @@ export async function collectAll(port, opts = {}) {
     throw new Error('snapshot returned unparseable data');
   }
   return {
-    elements: (parsed.elements ?? []).map((el, i) => ({ ...el, ref: `e${i + 1}` })),
+    elements: (parsed.elements ?? []).map((el, i) => {
+      // Sensitive work mode: mask every field value server-side too (in case a
+      // page exposes a secret through a non-password field).
+      if (getWorkMode() && el.value !== undefined && el.value !== '[redacted]') {
+        el = { ...el, value: '[redacted]' };
+      }
+      return { ...el, ref: `e${i + 1}` };
+    }),
     crossOriginFrames: parsed.crossOriginFrames ?? [],
   };
 }

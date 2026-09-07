@@ -13,6 +13,7 @@
 
 import { CdpSession, pickPageTarget, versionInfo, listTargets, evaluateJs } from './cdp.js';
 import { collectInteractive } from './snapshot.js';
+import { getWorkMode, vaultGet } from './workmode.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -186,10 +187,15 @@ export async function fillElement(port, { ref, selector, frame, value, clear = t
         };
         const next = ${clear ? '""' : 'el.value'} + ${JSON.stringify(value)};
         set(next);
-        return { ok: true, value: el.value };
+        return { ok: true, value: el.value, type: (el.tagName === 'INPUT' ? (el.type || 'text') : null) };
       })()`),
     );
     if (!r?.ok) throw new Error(`fill failed: ${r?.reason ?? 'unknown'}`);
+    // Credential isolation: never echo a password field's value; in sensitive
+    // mode never echo ANY field's value.
+    if (r.type === 'password' || getWorkMode()) {
+      return { ok: true, filled: true, redacted: true, type: r.type };
+    }
     return r;
   });
 }
@@ -197,9 +203,35 @@ export async function fillElement(port, { ref, selector, frame, value, clear = t
 export async function typeElement(port, { ref, selector, frame, text, urlSubstring }) {
   const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
   return withPageSession(port, urlSubstring, async (session) => {
-    await evalInPage(session, framed(target.frame, `(() => { const el = __root.querySelector(${JSON.stringify(target.selector)}); if (!el) return false; el.focus(); return true; })()`));
+    const focus = await evalInPage(session, framed(target.frame, `(() => { const el = __root.querySelector(${JSON.stringify(target.selector)}); if (!el) return { ok: false }; el.focus(); return { ok: true, type: (el.tagName === 'INPUT' ? (el.type || 'text') : null) }; })()`));
+    if (!focus?.ok) throw new Error('type target not found');
     await session.call('Input.insertText', { text });
+    // Credential isolation: redact the echo for password fields (always) and
+    // for every field in sensitive mode.
+    if (focus.type === 'password' || getWorkMode()) return { typed: '[redacted]' };
     return { typed: text };
+  });
+}
+
+/**
+ * Type a VAULT secret into a field without the secret ever entering the tool
+ * arguments or the model context: the caller passes only the vault key; the
+ * value is decrypted host-side and typed via CDP. Returns only a key marker.
+ */
+export async function typeSecret(port, { vaultKey, ref, selector, frame, urlSubstring }) {
+  if (!vaultKey || typeof vaultKey !== 'string') throw new Error('vaultKey is required');
+  const secret = vaultGet(vaultKey);
+  if (secret === undefined) {
+    throw new Error(
+      `vault key "${vaultKey}" not found — set it first with real_browser_vault action=set (the value is encrypted at rest with DPAPI).`,
+    );
+  }
+  const target = await resolveTarget(port, { ref, selector, frame }, urlSubstring);
+  return withPageSession(port, urlSubstring, async (session) => {
+    const focus = await evalInPage(session, framed(target.frame, `(() => { const el = __root.querySelector(${JSON.stringify(target.selector)}); if (!el) return { ok: false }; el.focus(); return { ok: true }; })()`));
+    if (!focus?.ok) throw new Error('type target not found');
+    await session.call('Input.insertText', { text: secret });
+    return { typed: `[from vault: ${vaultKey}]` };
   });
 }
 
