@@ -128,13 +128,27 @@ function BrowserIcon({ kind, size = 32 }) {
   const src = kind === 'chrome' ? CHROME_LOGO : EDGE_LOGO;
   const label = kind === 'chrome' ? 'Google Chrome' : 'Microsoft Edge';
   return (
-    <img
-      src={src}
-      alt={label}
-      title={label}
-      draggable={false}
-      style={{ width: size, height: size, objectFit: 'contain', flexShrink: 0 }}
-    />
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        overflow: 'hidden',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        background: '#fff',
+      }}
+    >
+      <img
+        src={src}
+        alt={label}
+        title={label}
+        draggable={false}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+    </span>
   );
 }
 
