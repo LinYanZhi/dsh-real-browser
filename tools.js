@@ -9,14 +9,10 @@
  *       - id: real-browser-tools
  *         name: dsh-real-browser/tools
  *
- * Tools (minimal validation set):
- *   real_browser_env     — environment detection: installed Edge/Chrome, exe
- *                          paths, version, user-data-dirs, profiles, avatars
- *   real_browser_list    — which real browser instances are running / attachable
- *   real_browser_launch  — launch a real browser with a real profile + debug port
- *   real_page_list       — open pages (tabs) of an attached browser
- *   real_page_dom        — view a page's DOM (the page the user is looking at)
- *   real_page_eval       — execute JS in a page (debugging / probing)
+ * Tools (31): env/list/launch/close/allow + fingerprint/policy/workmode/vault
+ * management, plus the full page-interaction layer (dom/eval/navigate/
+ * snapshot/click/fill/type/typeSecret/keys/select/check/hover/scroll/wait/
+ * find/tabs/network/upload/console/downloads/captcha).
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -28,6 +24,7 @@ import { detectEnvironment, readProfiles } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
 import { auditStealth, cleanupStealthArtifacts } from './stealth.js';
 import { listDownloads, stopDownloadTracking } from './downloads.js';
+import { stopNetworkTracking } from './network.js';
 import { matchPolicy, readPolicy, addRule, removeRule } from './policy.js';
 import { detectCaptcha } from './captcha.js';
 import {
@@ -251,6 +248,7 @@ export function apply(ctx) {
       async execute(args) {
         const killed = closeRealBrowser(args.port);
         stopDownloadTracking(args.port);
+        stopNetworkTracking(args.port);
         return { killed };
       },
     }),
@@ -886,9 +884,10 @@ export function apply(ctx) {
 
   register(defineTool({
     name: 'real_page_network',
-    description: 'List network requests observed for a page in a real browser (from Performance Resource Timing), optionally filtered by URL substring, initiator type (xhr/fetch/script/img/...), or response status. For debugging page APIs without a persistent listener.',
-    parameters: { ...PORT, ...URLSUB, filter: { type: 'string', description: 'URL substring filter.' }, initiatorType: { type: 'string', description: 'e.g. xhr, fetch, script.' }, method: { type: 'string', description: 'HTTP method (approximate).' }, status: { type: 'string', description: 'Status prefix, e.g. "2", "4".' }, max: { type: 'number', description: 'Max results (default 100).' } },
-    output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`${v.count} request(s):\n` + (v.requests || []).map((r) => `  ${r.responseStatus ?? '—'} ${r.initiatorType} ${Math.round(r.duration)}ms ${r.url}`).join('\n')) },
+    description:
+      'List network requests observed for a page in a real browser. The FIRST call activates live CDP Network capture on the picked tab (persistent listener, like downloads tracking) and returns the page\'s resource-timing history for immediate value; later calls return the live captures. Live capture carries the real HTTP method/status/resource type — resource timing does not, so a `method` filter only matches once live capture is active (re-call after the request). Filters: URL substring, initiator/resource type (e.g. xhr, fetch, script, image), HTTP method, response status prefix (e.g. "2", "4").',
+    parameters: { ...PORT, ...URLSUB, filter: { type: 'string', description: 'URL substring filter.' }, initiatorType: { type: 'string', description: 'e.g. xhr, fetch, script, image (live: resource type like XHR/Fetch/Script).' }, method: { type: 'string', description: 'HTTP method (live capture only).' }, status: { type: 'string', description: 'Status prefix, e.g. "2", "4".' }, max: { type: 'number', description: 'Max results (default 100).' } },
+    output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`${v.count} request(s)${v.live ? ' [live capture]' : ''}:\n` + (v.requests || []).map((r) => `  ${r.responseStatus ?? r.status ?? '—'} ${r.method ?? ''} ${r.initiatorType ?? r.type ?? ''} ${Math.round(r.duration)}ms ${r.url}`).join('\n') + (v.note ? `\n  note: ${v.note}` : '')) },
     timeoutMs: 20000,
     isConcurrencySafe: () => true,
     async execute(args) { return networkRequests(args.port, args); },

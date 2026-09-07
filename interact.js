@@ -14,6 +14,7 @@
 import { CdpSession, pickPageTarget, versionInfo, listTargets, evaluateJs } from './cdp.js';
 import { collectInteractive } from './snapshot.js';
 import { getWorkMode, vaultGet } from './workmode.js';
+import { ensureNetworkTracking, readNetwork } from './network.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -185,7 +186,9 @@ export async function fillElement(port, { ref, selector, frame, value, clear = t
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         };
-        const next = ${clear ? '""' : 'el.value'} + ${JSON.stringify(value)};
+        // contenteditable has no .value — append against textContent there.
+        const base = el.isContentEditable ? (${clear ? '""' : 'el.textContent'}) : (${clear ? '""' : 'el.value'});
+        const next = base + ${JSON.stringify(value)};
         set(next);
         return { ok: true, value: el.value, type: (el.tagName === 'INPUT' ? (el.type || 'text') : null) };
       })()`),
@@ -422,11 +425,32 @@ export async function closeTab(port, targetId) {
 }
 
 // ---------------------------------------------------------------------------
-// Network (via Performance Resource Timing — no persistent listener needed)
+// Network (live CDP Network capture + resource-timing fallback)
 // ---------------------------------------------------------------------------
 
+/**
+ * List network requests for a page. The FIRST call activates live CDP Network
+ * capture on the picked tab (like downloads tracking) and returns the page's
+ * resource-timing history for immediate value; subsequent calls return the
+ * live captures (which carry the real HTTP method — resource timing does not,
+ * so a `method` filter only matches once live capture is active).
+ */
 export async function networkRequests(port, { filter, initiatorType, method, status, max = 100, urlSubstring }) {
-  return withPageSession(port, urlSubstring, async (session) => {
+  // 1. Live capture: activate on first call; use live entries when present.
+  let liveActive = false;
+  let liveReq = [];
+  try {
+    await ensureNetworkTracking(port, { urlSubstring });
+    liveActive = true;
+    const live = await readNetwork(port, { filter, initiatorType, method, status, max });
+    liveReq = live?.requests ?? [];
+  } catch {
+    liveActive = false;
+  }
+
+  // 2. Resource-timing fallback: for the first call (live buffer empty) or
+  //    when capture could not start. No method data here.
+  const fallback = await withPageSession(port, urlSubstring, async (session) => {
     const list = await evalInPage(
       session,
       `JSON.stringify(performance.getEntriesByType('resource').slice(-200).map(e => ({
@@ -437,10 +461,31 @@ export async function networkRequests(port, { filter, initiatorType, method, sta
     let entries = JSON.parse(list ?? '[]');
     if (filter) entries = entries.filter((e) => e.url.includes(filter));
     if (initiatorType) entries = entries.filter((e) => e.initiatorType === initiatorType);
-    if (method) entries = entries.filter((e) => (e.method ?? '').toUpperCase() === method.toUpperCase());
     if (status) entries = entries.filter((e) => e.responseStatus !== null && String(e.responseStatus).startsWith(String(status).replace(/x+/gi, '')));
     return { count: Math.min(entries.length, max), requests: entries.slice(0, max) };
   });
+
+  // A `method` filter only exists on live capture — never fall back to
+  // resource timing for it (that path has no method data and would return
+  // unfiltered rows, silently wrong).
+  if (method) {
+    return {
+      live: liveActive,
+      count: liveReq.length,
+      requests: liveReq,
+      ...(liveActive && liveReq.length === 0
+        ? { note: 'no live request matched yet — requests that happen after capture activation are recorded; re-call after the request.' }
+        : !liveActive
+          ? { note: 'method filter needs live capture; the first real_page_network call activates it — re-call after the request.' }
+          : {}),
+    };
+  }
+
+  // Live data wins when it has anything.
+  if (liveActive && liveReq.length > 0) {
+    return { live: true, count: liveReq.length, requests: liveReq };
+  }
+  return { live: liveActive, count: fallback.count, requests: fallback.requests };
 }
 
 // ---------------------------------------------------------------------------

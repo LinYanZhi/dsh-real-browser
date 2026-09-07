@@ -1,7 +1,7 @@
 {
   "name": "dsh-real-browser",
-  "version": "0.5.0",
-  "description": "DSH plugin that lets the AI drive the REAL browser the user uses (real Chrome/Edge environments, RPA shop profiles) over CDP — not the plugin's own Electron sandbox. Environment detection with a built-in capability model, launch/attach/takeover/close, approval-gated allowlist access (real_browser_allow / launch autoGrant), same-origin iframe penetration in the interaction layer, download tracking (real_page_downloads), a full page interaction layer (snapshot with @eN refs, click, fill, type, keys, select, check, hover, scroll, wait, find, tabs, network, upload, console), plus a DSH web '浏览器设置' settings section (host typert RPC + React client plugin).",
+  "version": "0.6.0",
+  "description": "DSH plugin that lets the AI drive the REAL browser the user uses (real Chrome/Edge environments, RPA shop profiles) over CDP — not the plugin's own Electron sandbox. Environment detection with a built-in capability model, launch/attach/takeover/close (with stealth audit real_browser_fingerprint), approval-gated allowlist (real_browser_allow / launch autoGrant), URL policy guard (deny/requireApproval, real_browser_policy), credential isolation (sensitive work mode + DPAPI-encrypted vault + real_page_type_secret), captcha detection (real_page_captcha), live network capture with real HTTP method filtering, download tracking, same-origin iframe penetration, a full page interaction layer (snapshot with @eN refs, click, fill, type, keys, select, check, hover, scroll, wait, find, tabs, upload, console), plus a DSH web '浏览器设置' settings section (host typert RPC + React client plugin).",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -17,6 +17,7 @@
     "./policy": "./policy.js",
     "./workmode": "./workmode.js",
     "./captcha": "./captcha.js",
+    "./network": "./network.js",
     "./host": "./host.js",
     "./typert": "./typert.js",
     "./client": "./client.js",
@@ -35,6 +36,7 @@
     "policy.js",
     "workmode.js",
     "captcha.js",
+    "network.js",
     "downloads.js",
     "tools.js",
     "host.js",
@@ -56,6 +58,7 @@
     "test:policy": "node tests/test-policy.mjs",
     "test:workmode": "node tests/test-vault.mjs",
     "test:captcha": "node tests/test-captcha.mjs",
+    "test:network": "node tests/test-network.mjs",
     "test:interact": "node tests/test-interaction.mjs",
     "test:iframe": "node tests/test-iframe.mjs",
     "test:downloads": "node tests/test-downloads.mjs"

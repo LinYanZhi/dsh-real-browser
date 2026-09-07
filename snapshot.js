@@ -98,6 +98,7 @@ const COLLECT_SCRIPT = `(() => {
       const r = node.getBoundingClientRect();
       out.push({
         tag: node.tagName.toLowerCase(),
+        id: node.id || undefined,
         role: node.getAttribute('role') || undefined,
         name: nameOf(node) || undefined,
         type: node.getAttribute('type') || undefined,
