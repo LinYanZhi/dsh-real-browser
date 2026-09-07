@@ -24,7 +24,8 @@ DSH 插件：让 DSH 的 AI 通过 **CDP 驱动用户真正在用的浏览器**�
 |---|---|
 | `real_browser_env` | **入口**：已装浏览器（Edge/Chrome）+ 全部用户环境的 CDP 能力标注（默认目录=不可 CDP；`cdp_environments`=可驱动的非默认目录及其 profile/头像/下载目录） |
 | `real_browser_list` | 正在运行的真实浏览器实例（CDP 端口 / user-data-dir / profile / 是否可附加 / 是否后台占位） |
-| `real_browser_launch` | 启动 / 附加 / 接管：已在运行且带端口→附加；未运行→拉起带调试端口（45s 等待）；占用且无端口→默认报错，`force:true` 杀锁重开 |
+| `real_browser_launch` | 启动 / 附加 / 接管：已在运行且带端口→附加；未运行→拉起带调试端口（45s 等待）；占用且无端口→默认报错，`force:true` 杀锁重开。**未授权配置**：默认报错并指引下一步，`autoGrant:true` 则弹审批、批准后自动加入允许列表并继续启动 |
+| `real_browser_allow` | **授权开关（AI 侧）**：把某浏览器配置加入/移出允许列表。授权走 DSH 审批（Web GUI 弹卡片，用户批准才写入）；撤销无需审批 |
 | `real_browser_close` | 关闭指定 CDP 端口的所有浏览器进程（AI 自己拉起的自己清理） |
 | `real_page_list` | 列出已附加浏览器的打开页面 |
 | `real_page_dom` | 查看页面 DOM（整页或 CSS 选择器，上限 100k 字符） |
@@ -61,7 +62,7 @@ dsh-real-browser/
 ├── launch.js         # 启动/附加/接管/关闭（镜像 app-kit start_or_connect + 内置护栏）
 ├── snapshot.js       # 交互元素快照（ref 编号 + CSS 选择器生成 + 坐标/可见性）
 ├── interact.js       # 交互原语：click/fill/type/keys/select/check/hover/scroll/wait/find/tabs/network/upload/console
-├── tools.js          # 23 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed）
+├── tools.js          # 24 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed / autoGrant 审批）
 ├── host.js           # host 服务 realBrowser（typert RPC：detectEnv/listRunning/getAllowlist/setAllowed/launch/close）
 ├── typert.js         # typert RPC 清单（zod codec；服务方法按清单参数顺序位置调用）
 ├── client/           # web 客户端插件源码（React：「浏览器设置」栏目 + dev 徽标）
@@ -77,10 +78,11 @@ dsh-real-browser/
 
 1. `real_browser_env` → 看「可 CDP 驱动的环境」（如 `User Data Rpa` 的广州/香港子账号）
 2. `real_browser_launch` → 指定该环境的 `userDataDir` + `profileId`，得到 CDP 端口
-3. 看页面：`real_page_list` / `real_page_dom` / `real_page_eval`
-4. **交互**：`real_page_snapshot` 拿 `eN` 引用 → `real_page_click` / `real_page_fill` / `real_page_select` / `real_page_check` / `real_page_press_key` / `real_page_type` / `real_page_wait`（调试表单、按钮、下拉）
-5. 排障：`real_page_find` / `real_page_network` / `real_page_console` / `real_page_tabs` / `real_page_upload`
-6. `real_browser_close` → 用完清理
+3. **未授权配置**（错误消息会指明）：调 `real_browser_allow` 申请授权（Web GUI 弹审批卡片，用户批准后自动写入允许列表），或 `real_browser_launch` 直接带 `autoGrant:true` 一步到位；批准后无需用户去设置页手动勾选
+4. 看页面：`real_page_list` / `real_page_dom` / `real_page_eval`
+5. **交互**：`real_page_snapshot` 拿 `eN` 引用 → `real_page_click` / `real_page_fill` / `real_page_select` / `real_page_check` / `real_page_press_key` / `real_page_type` / `real_page_wait`（调试表单、按钮、下拉）
+6. 排障：`real_page_find` / `real_page_network` / `real_page_console` / `real_page_tabs` / `real_page_upload`
+7. `real_browser_close` → 用完清理
 
 ## 挂载到 DSH web profile
 
@@ -100,10 +102,11 @@ dsh-real-browser/
 
 ```powershell
 node smoke.mjs                 # 端到端冒烟（headless，自清理）
-node tests/test-registration.mjs  # 插件形状 + 工具注册（23 个）
+node tests/test-registration.mjs  # 插件形状 + 工具注册（24 个）
 node tests/test-env-tool.mjs     # real_browser_env 工具端到端
 node tests/test-guards.mjs       # 内置护栏（默认目录/不存在目录 快速拒绝）
 node tests/test-host-rpc.mjs     # host typert RPC 位置参数契约（setAllowed 持久化/launch 门控）
+node tests/test-allow.mjs        # 允许列表审批门控（real_browser_allow / launch autoGrant）
 node tests/test-interaction.mjs  # 交互层冒烟（snapshot/click/fill/type/keys/select/check/scroll/wait/find/tabs/network/console）
 ```
 
@@ -112,5 +115,6 @@ node tests/test-interaction.mjs  # 交互层冒烟（snapshot/click/fill/type/ke
 - **默认 profile 目录无法开调试端口**（Chrome/Edge 安全限制，见能力模型）；可驱动的必须是**非默认目录**（RPA 环境、自定义目录）。
 - **无法附加**未带调试端口启动的浏览器；无端口实例会明确标注。
 - **不自动杀进程**；`force: true` 才接管（含 Edge 后台占位），留给显式决策。
+- **允许列表是 AI 操作边界**：未勾选的配置默认拒绝；AI 可用 `real_browser_allow` 或 `launch autoGrant:true` 发起审批申请，用户批准后自动加入（审批策略为 `never` 或审批服务未挂载时降级为手动勾选指引）。
 - 真实 profile = 登录态 = 高权限；写回/下单类操作应挂 DSH 审批。
-- 版本：0.3.0。
+- 版本：0.4.0。

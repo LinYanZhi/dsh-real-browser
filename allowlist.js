@@ -39,12 +39,19 @@ export function isAllowed(kind, userDataDir, profileId) {
   );
 }
 
-/** 断言允许，否则抛错（launch/attach 入口调用）。 */
+/**
+ * 断言允许，否则抛错（launch/attach 入口调用）。
+ * 错误消息带明确的下一步指引：AI 可调用 real_browser_allow 申请授权（弹审批确认），
+ * 或带 autoGrant 重试 launch，或让用户在 设置 → 浏览器设置 手动勾选。
+ */
 export function assertAllowed(kind, userDataDir, profileId) {
   if (!isAllowed(kind, userDataDir, profileId)) {
     throw new Error(
       `浏览器配置不在 AI 允许列表内：${userDataDir}${profileId ? ` / ${profileId}` : ''}。` +
-        `请在 DSH 设置 → 浏览器设置 中勾选该配置后重试（AI 只可操作已勾选的配置）。`,
+        `AI 只可操作已勾选的配置。下一步（任选其一）：` +
+        `(1) 调用 real_browser_allow 工具申请授权（会向用户弹出审批确认，批准后自动加入允许列表）；` +
+        `(2) 用 real_browser_launch 并传 autoGrant:true 自动走审批授权后继续启动；` +
+        `(3) 请用户在 DSH 设置 → 浏览器设置 中勾选该配置后重试。`,
     );
   }
 }

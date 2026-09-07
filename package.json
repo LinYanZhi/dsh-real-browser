@@ -1,7 +1,7 @@
 {
   "name": "dsh-real-browser",
-  "version": "0.3.0",
-  "description": "DSH plugin that lets the AI drive the REAL browser the user uses (real Chrome/Edge environments, RPA shop profiles) over CDP — not the plugin's own Electron sandbox. Environment detection with a built-in capability model, launch/attach/takeover/close, a full page interaction layer (snapshot with @eN refs, click, fill, type, keys, select, check, hover, scroll, wait, find, tabs, network, upload, console), plus a DSH web '浏览器设置' settings section (host typert RPC + React client plugin).",
+  "version": "0.4.0",
+  "description": "DSH plugin that lets the AI drive the REAL browser the user uses (real Chrome/Edge environments, RPA shop profiles) over CDP — not the plugin's own Electron sandbox. Environment detection with a built-in capability model, launch/attach/takeover/close, approval-gated allowlist access (real_browser_allow / launch autoGrant), a full page interaction layer (snapshot with @eN refs, click, fill, type, keys, select, check, hover, scroll, wait, find, tabs, network, upload, console), plus a DSH web '浏览器设置' settings section (host typert RPC + React client plugin).",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -42,6 +42,7 @@
     "test:env": "node tests/test-env-tool.mjs",
     "test:guard": "node tests/test-guards.mjs",
     "test:hostrpc": "node tests/test-host-rpc.mjs",
+    "test:allow": "node tests/test-allow.mjs",
     "test:interact": "node tests/test-interaction.mjs"
   },
   "dependencies": {

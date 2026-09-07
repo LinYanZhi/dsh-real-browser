@@ -4,11 +4,13 @@
 //  3. a real NON-default dir (RPA) -> passes the guards (fails only on the
 //     deliberately-truncated wait, proving it was NOT fast-failed)
 import { launchRealBrowser } from '../launch.js';
+import os from 'node:os';
+import path from 'node:path';
 
 const EXE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const DEFAULT_UD = 'C:\\Users\\LinYanZhi\\AppData\\Local\\Microsoft\\Edge\\User Data';
-const RPA_UD = 'C:\\Users\\LinYanZhi\\AppData\\Local\\Microsoft\\Edge\\User Data Rpa';
-const GHOST_UD = 'C:\\Users\\LinYanZhi\\AppData\\Local\\Temp\\dsh-ghost-profile-please-never-create';
+const DEFAULT_UD = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data');
+const RPA_UD = path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data Rpa');
+const GHOST_UD = path.join(os.homedir(), 'AppData', 'Local', 'Temp', 'dsh-ghost-profile-please-never-create');
 
 let failures = 0;
 const expectError = (label, fn, pattern) => {

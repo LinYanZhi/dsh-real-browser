@@ -22,7 +22,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { discoverRunningBrowsers } from './discover.js';
 import { launchRealBrowser, closeRealBrowser } from './launch.js';
-import { assertAllowed, inferKind } from './allowlist.js';
+import { assertAllowed, isAllowed, toggleAllowed, readAllowlist, inferKind } from './allowlist.js';
 import { listTargets, evaluateJs, readPageDom, navigatePage } from './cdp.js';
 import { detectEnvironment, readProfiles } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
@@ -39,6 +39,36 @@ export const name = 'real-browser-tools';
 export const inject = ['tools'];
 
 const text = (t) => [{ type: 'text', text: t }];
+
+/**
+ * 通过 DSH 审批服务（ctx.approval）向用户申请把某个浏览器配置加入允许列表。
+ * 用户在 Web GUI 会看到审批卡片（ui-approval 消费 approval/request waterfall），
+ * 点「允许」返回 'allowed-once'，点「拒绝」返回 'rejected'。
+ * @returns {Promise<'allowed-once'|'rejected'|'cancelled'|'unavailable'>}
+ */
+async function requestAllowlistGrant(ctx, exec, kind, userDataDir, profileId) {
+  const approval = ctx.get('approval');
+  if (approval === undefined) {
+    throw new Error(
+      '审批服务不可用（approval service 未挂载），无法向用户申请授权。' +
+        '请让用户在 DSH 设置 → 浏览器设置 中勾选该配置后重试。',
+    );
+  }
+  if (exec.agent === undefined) {
+    throw new Error(
+      '当前工具调用缺少 Agent 会话上下文，无法发起审批。' +
+        '请让用户在 DSH 设置 → 浏览器设置 中勾选该配置后重试。',
+    );
+  }
+  const display = `${userDataDir}${profileId ? ` / ${profileId}` : ''}`;
+  return approval.request({
+    agent: exec.agent,
+    toolName: 'real_browser_allow',
+    reason: `AI 请求允许驱动浏览器配置：${display}。批准后 AI 才能启动/驱动该浏览器（可随时在 设置 → 浏览器设置 撤销）。`,
+    ...(exec.callId === undefined ? {} : { callId: exec.callId }),
+    signal: exec.signal,
+  });
+}
 
 export function apply(ctx) {
   const tools = ctx.tools;
@@ -82,7 +112,7 @@ export function apply(ctx) {
     defineTool({
       name: 'real_browser_launch',
       description:
-        'Launch / attach / take over a REAL browser with a real profile (user-data-dir + profile-directory) and a CDP debug port, preserving login state and extensions. Semantics (GLBT start_or_connect): if the same environment is already running WITH a debug port it attaches to it (attached=true, no spawn); if it is running WITHOUT a port it fails by default and succeeds with force:true (kills the lockers, incl. Edge background --no-startup-window holders, and relaunches with the port). IMPORTANT built-in guards: the DEFAULT user-data-dir (e.g. ...\\Edge\\User Data) is refused by Chrome/Edge for remote debugging — this call errors immediately with the reason; a non-existent user-data-dir is refused too (do not create new configs). Only drive existing NON-default environments returned by real_browser_env.',
+        'Launch / attach / take over a REAL browser with a real profile (user-data-dir + profile-directory) and a CDP debug port, preserving login state and extensions. Semantics (GLBT start_or_connect): if the same environment is already running WITH a debug port it attaches to it (attached=true, no spawn); if it is running WITHOUT a port it fails by default and succeeds with force:true (kills the lockers, incl. Edge background --no-startup-window holders, and relaunches with the port). IMPORTANT built-in guards: the DEFAULT user-data-dir (e.g. ...\\Edge\\User Data) is refused by Chrome/Edge for remote debugging — this call errors immediately with the reason; a non-existent user-data-dir is refused too (do not create new configs). Only drive existing NON-default environments returned by real_browser_env. ACCESS CONTROL: only profiles the user checked in 设置 → 浏览器设置 (the allowlist) can be driven. If the profile is NOT in the allowlist the call fails with guidance — then either ask the user to check it in settings, or retry with autoGrant:true, which pops an approval prompt and, once the user approves, adds the profile to the allowlist and continues the launch in the same call.',
       parameters: {
         exePath: { type: 'string', required: true, description: 'Path to chrome.exe / msedge.exe / etc.' },
         userDataDir: { type: 'string', required: true, description: 'An EXISTING non-default user-data-dir (--user-data-dir), e.g. from real_browser_env.cdp_environments.' },
@@ -92,6 +122,7 @@ export function apply(ctx) {
         headless: { type: 'boolean', description: 'Launch headless (default false).' },
         force: { type: 'boolean', description: 'Kill a running browser that locks this profile and relaunch with the debug port (default false). Disruptive — only use when the human approves.' },
         waitMs: { type: 'number', description: 'How long to wait for the debug port (default 45000).' },
+        autoGrant: { type: 'boolean', description: 'If the profile is not in the allowlist, ask the user for approval (approval prompt in the web GUI); on approval add it to the allowlist and continue the launch. Default false — without it, a non-allowed profile fails with guidance. Do not set true repeatedly after the user rejects.' },
       },
       output: {
         schema: {
@@ -115,11 +146,28 @@ export function apply(ctx) {
                 : `Launched real browser pid=${value.pid} on CDP port ${value.port}.`,
           ),
       },
-      timeoutMs: 60000,
+      timeoutMs: 120000,
       isConcurrencySafe: () => true,
-      async execute(args) {
+      async execute(args, exec) {
+        const kind = inferKind(args.exePath);
         // AI 操作边界：只有用户在设置 → 浏览器设置 里勾选的配置才允许拉起。
-        assertAllowed(inferKind(args.exePath), args.userDataDir, args.profileId);
+        if (!isAllowed(kind, args.userDataDir, args.profileId)) {
+          if (args.autoGrant === true) {
+            const outcome = await requestAllowlistGrant(ctx, exec, kind, args.userDataDir, args.profileId);
+            if (outcome !== 'allowed-once') {
+              throw new Error(
+                outcome === 'rejected'
+                  ? `用户拒绝了授权申请，未加入允许列表：${args.userDataDir}${args.profileId ? ` / ${args.profileId}` : ''}。不要再次自动请求授权；请用户自己在 设置 → 浏览器设置 勾选后重试。`
+                  : outcome === 'cancelled'
+                    ? '授权申请被取消，未加入允许列表。'
+                    : '审批通道不可用（approval service 未挂载），无法申请授权。请用户自己在 设置 → 浏览器设置 勾选该配置后重试。',
+              );
+            }
+            toggleAllowed({ kind, userDataDir: args.userDataDir, profileId: args.profileId, allowed: true });
+          } else {
+            assertAllowed(kind, args.userDataDir, args.profileId);
+          }
+        }
         return launchRealBrowser(args);
       },
     }),
@@ -146,6 +194,59 @@ export function apply(ctx) {
       isConcurrencySafe: () => true,
       async execute(args) {
         return { killed: closeRealBrowser(args.port) };
+      },
+    }),
+  );
+
+  tools.register(
+    defineTool({
+      name: 'real_browser_allow',
+      description:
+        'Grant or revoke AI access to a real browser profile by adding/removing it from the allowlist (the profiles the user checked in 设置 → 浏览器设置). Granting is gated: the tool asks the user for approval through the web GUI approval prompt and only writes the allowlist after the user approves (allowed-once). Use this when real_browser_launch reports the profile is NOT in the allowlist — instead of asking the user to manually check a checkbox, call this tool to request the grant; on approval, retry real_browser_launch. Do not call repeatedly after the user rejects. Revoking (allowed:false) is not gated (it only removes access).',
+      parameters: {
+        userDataDir: { type: 'string', required: true, description: 'The browser user-data-dir (--user-data-dir), e.g. "C:\\...\\Chrome Rpa\\ozon".' },
+        profileId: { type: 'string', description: 'Profile id (--profile-directory), e.g. "Default".' },
+        kind: { type: 'string', enum: ['chrome', 'edge'], description: 'Browser kind. Omit to infer from the user-data-dir path (contains "Chrome" → chrome, else edge).' },
+        allowed: { type: 'boolean', description: 'true to grant access (default; requires user approval), false to revoke (immediate).' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            granted: { type: 'boolean' },
+            already: { type: 'boolean' },
+            revoked: { type: 'boolean' },
+            outcome: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            environments: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          },
+        },
+        render: (_args, value) => {
+          if (value.revoked) return text('Removed the profile from the allowlist — AI can no longer drive it without a new grant.');
+          if (value.already) return text('The profile was already in the allowlist — no change needed.');
+          if (value.granted) return text('User approved — profile added to the allowlist. You can now call real_browser_launch for it.');
+          return text(`Not granted (outcome: ${value.outcome ?? 'unknown'}). The profile stays outside the allowlist; do not auto-retry the grant.`);
+        },
+      },
+      timeoutMs: 120000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const kind = args.kind ?? (/chrome/i.test(String(args.userDataDir || '')) ? 'chrome' : 'edge');
+        const want = args.allowed !== false;
+        if (isAllowed(kind, args.userDataDir, args.profileId)) {
+          if (want) return { granted: true, already: true, revoked: false, outcome: null, environments: readAllowlist().environments };
+          toggleAllowed({ kind, userDataDir: args.userDataDir, profileId: args.profileId, allowed: false });
+          return { granted: false, already: false, revoked: true, outcome: null, environments: readAllowlist().environments };
+        }
+        if (!want) {
+          return { granted: false, already: false, revoked: true, outcome: null, environments: readAllowlist().environments };
+        }
+        const outcome = await requestAllowlistGrant(ctx, exec, kind, args.userDataDir, args.profileId);
+        if (outcome !== 'allowed-once') {
+          return { granted: false, already: false, revoked: false, outcome, environments: readAllowlist().environments };
+        }
+        toggleAllowed({ kind, userDataDir: args.userDataDir, profileId: args.profileId, allowed: true });
+        return { granted: true, already: false, revoked: false, outcome, environments: readAllowlist().environments };
       },
     }),
   );
