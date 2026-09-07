@@ -26,6 +26,7 @@ import { assertAllowed, isAllowed, toggleAllowed, readAllowlist, inferKind } fro
 import { listTargets, evaluateJs, readPageDom, navigatePage } from './cdp.js';
 import { detectEnvironment, readProfiles } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
+import { auditStealth, cleanupStealthArtifacts } from './stealth.js';
 import { listDownloads, stopDownloadTracking } from './downloads.js';
 import {
   clickElement, hoverElement, fillElement, typeElement, pressKey, selectOption, checkElement,
@@ -321,6 +322,42 @@ export function apply(ctx) {
           ? readProfiles(args.userDataDir, /edge/i.test(args.userDataDir), args.includeAvatars === true)
           : [];
         return { browsers, customProfiles };
+      },
+    }),
+  );
+
+  tools.register(
+    defineTool({
+      name: 'real_browser_fingerprint',
+      description:
+        'Run a stealth audit of the driven REAL browser page (the page the user is looking at): the common automation-detection signals a shop/site could use to fingerprint the environment — navigator.webdriver, ChromeDriver cdc_* artifacts, plugin/mimeType surface, window.chrome shape, permissions state, headless heuristics, and any globals dsh-real-browser itself injected (e.g. the console-capture buffer). Each check reports clean/flagged plus its value, and the verdict is "clean" only when every check is clean. This is INFORMATION for deciding whether an RPA environment looks clean before driving it — the plugin never rewrites the page to "fix" fingerprints (that would itself be a detectable intervention). If dsh-artifacts shows a leftover console buffer, call real_page_console once or run cleanupStealthArtifacts via real_page_eval to remove it; the audit itself does not modify the page.',
+      parameters: {
+        port: { type: 'number', required: true, description: 'CDP debug port of the real browser.' },
+        urlSubstring: { type: 'string', description: 'Pick the tab whose url/title contains this; default = preferred page.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            verdict: { type: 'string', enum: ['clean', 'flagged'] },
+            checks: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          },
+        },
+        render: (_args, value) => {
+          const lines = [`Stealth audit on ${value.url || '(page)'} — verdict: ${value.verdict.toUpperCase()}`];
+          for (const c of value.checks || []) {
+            const tag = c.clean ? 'clean  ' : 'FLAGGED';
+            lines.push(`  [${tag}] ${c.name} = ${c.value}`);
+          }
+          return text(lines.join('\n'));
+        },
+      },
+      timeoutMs: 20000,
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        return auditStealth(args.port, { urlSubstring: args.urlSubstring });
       },
     }),
   );

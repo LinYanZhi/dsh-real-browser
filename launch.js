@@ -112,6 +112,13 @@ export function closeRealBrowser(port) {
  * @param {number} [opts.waitMs] - debug-port wait (default 45s; real profiles
  *   cold-start slower than fresh temp profiles).
  * @param {boolean} [opts.force] - kill lockers and relaunch with the debug port.
+ * @param {boolean} [opts.stealth] - append anti-automation-detection flags.
+ *   Direct CDP attach does NOT set navigator.webdriver by default (that comes
+ *   from --enable-automation, which we never pass), so this is belt-and-braces
+ *   for users who also drive the same profile through other automation: it adds
+ *   --disable-blink-features=AutomationControlled. It does NOT disable the CDP
+ *   endpoint (impossible while the debug port is on) and never rewrites the
+ *   page; for a true fingerprint picture run real_browser_fingerprint.
  * @returns {Promise<{pid:number|null, port:number, wsUrl?:string, tookOver:boolean,
  *   killed:number, attached:boolean}>}
  */
@@ -171,6 +178,7 @@ export async function launchRealBrowser(opts) {
   ];
   if (opts.profileId) args.push(`--profile-directory=${opts.profileId}`);
   if (opts.headless) args.push('--headless=new');
+  if (opts.stealth) args.push('--disable-blink-features=AutomationControlled');
   if (opts.url) args.push(opts.url);
 
   const child = spawn(opts.exePath, args, { detached: true, stdio: 'ignore', windowsHide: true });

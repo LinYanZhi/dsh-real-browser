@@ -431,13 +431,26 @@ export async function uploadFiles(port, { ref, selector, files, urlSubstring }) 
 // ---------------------------------------------------------------------------
 
 export async function readConsole(port, { clear = true, urlSubstring } = {}) {
+  // The capture buffer lives on window.__realBrowserConsole but is defined
+  // NON-enumerable, so for..in / JSON.stringify(window) never expose it to the
+  // page (stealth hygiene: driving the user's real profile must not leave
+  // enumerable driver artifacts a shop site could fingerprint). Reads still
+  // work, and real_browser_fingerprint / cleanupStealthArtifacts can see and
+  // remove it.
   const INJECT = `(() => {
     if (!window.__realBrowserConsole) {
-      window.__realBrowserConsole = [];
+      const buf = [];
+      try {
+        Object.defineProperty(window, '__realBrowserConsole', { value: buf, configurable: true, writable: true, enumerable: false });
+      } catch {
+        window.__realBrowserConsole = buf; // last resort: enumerable fallback
+      }
       for (const level of ['log','info','warn','error']) {
         const orig = console[level].bind(console);
         console[level] = (...args) => {
-          window.__realBrowserConsole.push({ level, text: args.map(a => typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch { return String(a); } })()).join(' ').slice(0, 500) });
+          // Re-resolve each call so a clear (which swaps in a fresh array)
+          // keeps capturing; falls back to the closure buffer if deleted.
+          (window.__realBrowserConsole || buf).push({ level, text: args.map(a => typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch { return String(a); } })()).join(' ').slice(0, 500) });
           orig(...args);
         };
       }
