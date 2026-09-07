@@ -28,6 +28,7 @@ import { detectEnvironment, readProfiles } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
 import { auditStealth, cleanupStealthArtifacts } from './stealth.js';
 import { listDownloads, stopDownloadTracking } from './downloads.js';
+import { matchPolicy, readPolicy, addRule, removeRule } from './policy.js';
 import {
   clickElement, hoverElement, fillElement, typeElement, pressKey, selectOption, checkElement,
   scrollPage, waitFor, findElements, listTabs, newTab, switchTab, closeTab,
@@ -70,6 +71,57 @@ async function requestAllowlistGrant(ctx, exec, kind, userDataDir, profileId) {
     ...(exec.callId === undefined ? {} : { callId: exec.callId }),
     signal: exec.signal,
   });
+}
+
+/**
+ * URL 策略守卫（第二层边界）：deny 规则硬拦截，requireApproval 规则走审批。
+ * deny 不可被 AI 自行绕过（需用户编辑策略文件）；requireApproval 与 allowlist
+ * 授权一样经 ctx.approval 弹审批卡片，用户批准（allowed-once）后放行本次操作。
+ */
+async function requestPolicyApproval(ctx, exec, url, pattern, operation) {
+  const approval = ctx.get('approval');
+  if (approval === undefined || exec.agent === undefined) {
+    throw new Error(
+      `URL 策略要求对 ${operation} ${url} 先获得批准（规则 "${pattern}"），但审批服务不可用。` +
+        `请用户在 ~/.dsh/realbrowser-policy.json 中调整该规则后重试。`,
+    );
+  }
+  return approval.request({
+    agent: exec.agent,
+    toolName: 'real_browser_policy',
+    reason: `URL 策略要求批准：AI 请求${operation} ${url}（命中 requireApproval 规则 "${pattern}"）。批准后本次操作放行（策略本身不变）。`,
+    ...(exec.callId === undefined ? {} : { callId: exec.callId }),
+    signal: exec.signal,
+  });
+}
+
+/** 对目标 URL 做策略守卫：deny 硬拦截，requireApproval 弹审批。 */
+async function assertUrlPolicy(ctx, exec, url, operation) {
+  const hit = matchPolicy(url);
+  if (hit.deniedBy) {
+    throw new Error(
+      `URL 策略拦截：${operation} ${url} 命中 deny 规则 "${hit.deniedBy}"。` +
+        `AI 不能自行绕过 deny 规则——请用户在 ~/.dsh/realbrowser-policy.json 中调整（或用 real_browser_policy 经审批移除规则）。`,
+    );
+  }
+  if (hit.requireApprovalBy) {
+    const outcome = await requestPolicyApproval(ctx, exec, url, hit.requireApprovalBy, operation);
+    if (outcome !== 'allowed-once') {
+      throw new Error(
+        outcome === 'rejected'
+          ? `用户拒绝了对 ${operation} ${url} 的批准（规则 "${hit.requireApprovalBy}"），本次操作未执行。`
+          : outcome === 'cancelled'
+            ? `批准申请被取消，${operation} ${url} 未执行。`
+            : `审批通道不可用，${operation} ${url} 未执行。请调整策略后重试。`,
+      );
+    }
+  }
+}
+
+/** 当前页 URL（供 eval/click 等「操作当前页」的守卫用）。 */
+async function currentPageUrl(port, urlSubstring) {
+  const r = await evaluateJs(port, 'location.href', { urlSubstring });
+  return typeof r.value === 'string' && r.value ? r.value : '';
 }
 
 export function apply(ctx) {
@@ -475,7 +527,9 @@ export function apply(ctx) {
       },
       timeoutMs: 20000,
       isConcurrencySafe: () => true,
-      async execute(args) {
+      async execute(args, exec) {
+        const cur = await currentPageUrl(args.port, args.urlSubstring);
+        if (cur) await assertUrlPolicy(ctx, exec, cur, '在页面执行 JS');
         return evaluateJs(args.port, args.expression, {
           urlSubstring: args.urlSubstring,
           awaitPromise: args.awaitPromise,
@@ -510,8 +564,69 @@ export function apply(ctx) {
       },
       timeoutMs: 20000,
       isConcurrencySafe: () => true,
-      async execute(args) {
+      async execute(args, exec) {
+        await assertUrlPolicy(ctx, exec, args.url, '导航到');
         return navigatePage(args.port, args.url, { urlSubstring: args.urlSubstring });
+      },
+    }),
+  );
+
+  tools.register(
+    defineTool({
+      name: 'real_browser_policy',
+      description:
+        'Manage the URL policy guard — the second layer of the AI\'s operation boundary (above the environment allowlist). Rules: "deny" hard-blocks operations whose target URL matches the pattern (the AI cannot bypass it on its own — the user must edit ~/.dsh/realbrowser-policy.json), and "requireApproval" makes matching operations (navigate/eval/click) pop the DSH approval prompt first. Pattern syntax: glob-lite — `*` = any run of characters, no `*` = exact match, case-insensitive, matches full URL / host / host+path (e.g. "*checkout*", "https://*.bank.com/*"). Actions: list (default), add <kind> <pattern> (restricts the AI — free), remove <kind> <pattern> (loosens the AI\'s own constraint — requires user approval).',
+      parameters: {
+        action: { type: 'string', enum: ['list', 'add', 'remove'], default: 'list', description: 'list (default) | add | remove.' },
+        kind: { type: 'string', enum: ['deny', 'requireApproval'], description: 'Rule kind for add/remove.' },
+        pattern: { type: 'string', description: 'URL pattern (glob-lite with * wildcards) for add/remove.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            deny: { type: 'array', items: { type: 'string' } },
+            requireApproval: { type: 'array', items: { type: 'string' } },
+            removed: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            outcome: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+          },
+        },
+        render: (_args, value) => {
+          const lines = ['URL policy (deny rules are NOT AI-bypassable; requireApproval rules pop an approval prompt):'];
+          lines.push(`  deny: ${value.deny.length ? value.deny.map((p) => `"${p}"`).join(', ') : '(none)'}`);
+          lines.push(`  requireApproval: ${value.requireApproval.length ? value.requireApproval.map((p) => `"${p}"`).join(', ') : '(none)'}`);
+          if (value.removed) lines.push(`  removed rule: "${value.removed}"`);
+          if (value.outcome !== null && value.outcome !== undefined) lines.push(`  approval outcome: ${value.outcome}`);
+          return text(lines.join('\n'));
+        },
+      },
+      timeoutMs: 120000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const action = args.action ?? 'list';
+        if (action === 'list') {
+          const p = readPolicy();
+          return { deny: p.deny, requireApproval: p.requireApproval, removed: null, outcome: null };
+        }
+        if (!args.kind || !args.pattern) throw new Error('add/remove require kind (deny|requireApproval) and pattern');
+        if (action === 'add') {
+          const p = addRule(args.kind, args.pattern);
+          return { deny: p.deny, requireApproval: p.requireApproval, removed: null, outcome: null };
+        }
+        // remove loosens the AI's own constraint — gate behind user approval.
+        const outcome = await requestPolicyApproval(
+          ctx,
+          exec,
+          '(policy edit)',
+          args.pattern,
+          `移除 ${args.kind} 规则`,
+        );
+        if (outcome !== 'allowed-once') {
+          return { deny: readPolicy().deny, requireApproval: readPolicy().requireApproval, removed: null, outcome };
+        }
+        const p = removeRule(args.kind, args.pattern);
+        return { deny: p.deny, requireApproval: p.requireApproval, removed: args.pattern, outcome };
       },
     }),
   );
@@ -570,7 +685,11 @@ export function apply(ctx) {
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => text(`Clicked at (${v.x},${v.y})${v.clickCount > 1 ? ' (double)' : ''}.`) },
     timeoutMs: 20000,
     isConcurrencySafe: () => false,
-    async execute(args) { return clickElement(args.port, args); },
+    async execute(args, exec) {
+      const cur = await currentPageUrl(args.port, args.urlSubstring);
+      if (cur) await assertUrlPolicy(ctx, exec, cur, '点击页面元素');
+      return clickElement(args.port, args);
+    },
   }));
 
   register(defineTool({

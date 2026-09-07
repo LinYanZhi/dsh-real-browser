@@ -14,6 +14,7 @@
     "./snapshot": "./snapshot.js",
     "./interact": "./interact.js",
     "./stealth": "./stealth.js",
+    "./policy": "./policy.js",
     "./host": "./host.js",
     "./typert": "./typert.js",
     "./client": "./client.js",
@@ -29,6 +30,7 @@
     "snapshot.js",
     "interact.js",
     "stealth.js",
+    "policy.js",
     "downloads.js",
     "tools.js",
     "host.js",
@@ -47,6 +49,7 @@
     "test:hostrpc": "node tests/test-host-rpc.mjs",
     "test:allow": "node tests/test-allow.mjs",
     "test:stealth": "node tests/test-stealth.mjs",
+    "test:policy": "node tests/test-policy.mjs",
     "test:interact": "node tests/test-interaction.mjs",
     "test:iframe": "node tests/test-iframe.mjs",
     "test:downloads": "node tests/test-downloads.mjs"
