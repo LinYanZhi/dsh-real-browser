@@ -139,7 +139,6 @@ function BrowserIcon({ kind, size = 32 }) {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        background: '#fff',
       }}
     >
       <img
@@ -396,8 +395,8 @@ function ProfileCard({ cfg, accent, allowed, running, onToggle }) {
   const portText = running.map((i) => (i.port ? `:${i.port}` : '')).join('');
   return (
     <div className="rb-card" style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
-      {/* 头像：圆形 + 品牌色描边（clip-path 硬裁剪，任何 CSS 覆盖都无法破坏圆形） */}
-      <div style={{ width: 44, height: 44, borderRadius: '50%', clipPath: 'circle(50%)', overflow: 'hidden', flexShrink: 0, border: `2px solid ${accent}66`, background: `linear-gradient(135deg, ${accent}22, ${accent}0d)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* 头像：圆形 + 品牌色描边（透明头像直接透过去，不加背景色） */}
+      <div style={{ width: 44, height: 44, borderRadius: '50%', clipPath: 'circle(50%)', overflow: 'hidden', flexShrink: 0, border: `2px solid ${accent}66`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {cfg.avatar ? (
           <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: '50%', clipPath: 'circle(50%)' }} />
         ) : (
