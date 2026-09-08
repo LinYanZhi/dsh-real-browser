@@ -41,13 +41,22 @@ try {
   const svc = services.realBrowser;
   check('service provided', !!svc && typeof svc.setAllowed === 'function');
 
+  // Baseline: the machine may already have allowlist entries (e.g. Chrome Rpa\Test),
+  // so all length assertions are relative to the captured baseline, not absolute.
+  const baselineEnvs = (() => {
+    try { return JSON.parse(readFileSync(FILE, 'utf8')).environments || []; } catch { return []; }
+  })();
+  const baseline = baselineEnvs.length;
+  const hasBaseline = (e) => baselineEnvs.some((b) => b.kind === e.kind && b.userDataDir === e.userDataDir && b.profileId === e.profileId);
+
   // 1. setAllowed ON, positionally like the gateway: (kind, userDataDir, profileId, allowed)
   await svc.setAllowed('edge', AI_DIR, 'Default', true);
   let raw = JSON.parse(readFileSync(FILE, 'utf8'));
-  check('setAllowed(true) persisted 1 entry', raw.environments.length === 1, JSON.stringify(raw));
+  check('setAllowed(true) added 1 entry', raw.environments.length === baseline + 1, JSON.stringify(raw));
   check('entry has kind/userDataDir/profileId',
-    raw.environments[0]?.kind === 'edge' && raw.environments[0]?.userDataDir === AI_DIR && raw.environments[0]?.profileId === 'Default',
-    JSON.stringify(raw.environments[0]));
+    !hasBaseline({ kind: 'edge', userDataDir: AI_DIR, profileId: 'Default' }) &&
+      raw.environments.some((e) => e.kind === 'edge' && e.userDataDir === AI_DIR && e.profileId === 'Default'),
+    JSON.stringify(raw.environments[raw.environments.length - 1]));
 
   // 2. getAllowlist reflects it
   const al = await svc.getAllowlist();
@@ -76,7 +85,7 @@ try {
   // 5. setAllowed OFF removes the entry
   await svc.setAllowed('edge', AI_DIR, 'Default', false);
   raw = JSON.parse(readFileSync(FILE, 'utf8'));
-  check('setAllowed(false) removed entry', raw.environments.length === 0, JSON.stringify(raw));
+  check('setAllowed(false) removed entry', raw.environments.length === baseline, JSON.stringify(raw));
 
   // 6. detectEnv / listRunning basic shapes
   const env = await svc.detectEnv(false);

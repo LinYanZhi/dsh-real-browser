@@ -78,8 +78,8 @@ try {
 } finally {
   if (port) { stopDownloadTracking(port); closeRealBrowser(port); }
   server.close();
-  rmSync(tmp, { recursive: true, force: true });
-  rmSync(dlDir, { recursive: true, force: true });
+  try { rmSync(tmp, { recursive: true, force: true }); } catch { /* EPERM: leftover temp dir is harmless */ }
+  try { rmSync(dlDir, { recursive: true, force: true }); } catch { /* EPERM: leftover temp dir is harmless */ }
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('cleaned up');
 }

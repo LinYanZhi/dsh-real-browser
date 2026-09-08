@@ -24,6 +24,8 @@ const strOpt = strictCodec('dsh-real-browser#StringOption', z.string().optional(
 const numOpt = strictCodec('dsh-real-browser#NumberOption', z.number().optional())
 const strReq = strictCodec('dsh-real-browser#RequiredString', z.string())
 const numReq = strictCodec('dsh-real-browser#RequiredNumber', z.number())
+const exePathsPatch = strictCodec('dsh-real-browser#ExePathsPatch', z.record(z.string(), z.string()).nullish())
+const userDataDirsPatch = strictCodec('dsh-real-browser#UserDataDirsPatch', z.record(z.string(), z.array(z.string())).nullish())
 
 const param = (name, codec) => ({ name, wire: name, source: 'json', codec })
 
@@ -96,6 +98,41 @@ export const TYPERT = {
             name: 'setWorkMode',
             signature: 'setWorkMode(options: { enabled: boolean }): Promise<{ sensitive: boolean }>',
           },
+          {
+            kind: 'method',
+            name: 'getConfig',
+            signature: 'getConfig(): Promise<{ exePaths: object; userDataDirs: object; updatedAt?: string }>',
+          },
+          {
+            kind: 'method',
+            name: 'setConfig',
+            signature: 'setConfig(exePaths?: object, userDataDirs?: object): Promise<object>',
+          },
+          {
+            kind: 'method',
+            name: 'getLaunchCommand',
+            signature: 'getLaunchCommand(exePath: string, userDataDir: string, profileId?: string, port?: number): Promise<{ exe_path: string; args: string[]; command_line: string; debug_port: number }>',
+          },
+          {
+            kind: 'method',
+            name: 'createUserDataDir',
+            signature: 'createUserDataDir(kind: string, parentDir: string, dirName: string): Promise<{ path: string; created: boolean; existed: boolean }>',
+          },
+          {
+            kind: 'method',
+            name: 'createShortcut',
+            signature: 'createShortcut(kind: string, exePath: string, profileId: string, userDataDir: string, profileName: string, port?: number): Promise<{ shortcut_path: string; overwritten: boolean }>',
+          },
+          {
+            kind: 'method',
+            name: 'closeProfile',
+            signature: 'closeProfile(kind: string, userDataDir: string, profileId?: string): Promise<{ killed: number; pids: number[] }>',
+          },
+          {
+            kind: 'method',
+            name: 'killAll',
+            signature: 'killAll(kind: string): Promise<{ killed: number }>',
+          },
         ],
         types: [],
       },
@@ -112,6 +149,7 @@ export const TYPERT = {
       invocation: { kind: 'direct' },
       parameters: [
         param('includeAvatars', boolOpt),
+        param('force', boolOpt),
       ],
       result: envResult,
     },
@@ -227,6 +265,94 @@ export const TYPERT = {
         param('enabled', boolReq),
       ],
       result: anyCodec('dsh-real-browser#WorkModeResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/getConfig',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'getConfig',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: anyCodec('dsh-real-browser#ConfigResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/setConfig',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'setConfig',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('exePaths', exePathsPatch),
+        param('userDataDirs', userDataDirsPatch),
+      ],
+      result: anyCodec('dsh-real-browser#ConfigResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/getLaunchCommand',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'getLaunchCommand',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('exePath', strReq),
+        param('userDataDir', strReq),
+        param('profileId', strOpt),
+        param('port', numOpt),
+      ],
+      result: anyCodec('dsh-real-browser#LaunchCommandResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/createUserDataDir',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'createUserDataDir',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('kind', strReq),
+        param('parentDir', strReq),
+        param('dirName', strReq),
+      ],
+      result: anyCodec('dsh-real-browser#CreateUserDataDirResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/createShortcut',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'createShortcut',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('kind', strReq),
+        param('exePath', strReq),
+        param('profileId', strReq),
+        param('userDataDir', strReq),
+        param('profileName', strReq),
+        param('port', numOpt),
+      ],
+      result: anyCodec('dsh-real-browser#CreateShortcutResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/closeProfile',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'closeProfile',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('kind', strReq),
+        param('userDataDir', strReq),
+        param('profileId', strOpt),
+      ],
+      result: anyCodec('dsh-real-browser#CloseProfileResult'),
+    },
+    {
+      id: 'dsh-real-browser#realBrowser/killAll',
+      service: 'realBrowser',
+      namespace: 'realBrowser',
+      method: 'killAll',
+      invocation: { kind: 'direct' },
+      parameters: [
+        param('kind', strReq),
+      ],
+      result: anyCodec('dsh-real-browser#KillAllResult'),
     },
   ],
   events: [],

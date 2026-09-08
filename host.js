@@ -18,12 +18,14 @@
  *         name: dsh-real-browser
  */
 
-import { detectEnvironment } from './env.js';
+import { detectEnvironment, optimizeAvatars } from './env.js';
 import { discoverRunningBrowsers } from './discover.js';
 import { launchRealBrowser, closeRealBrowser } from './launch.js';
 import { readAllowlist, toggleAllowed, assertAllowed, inferKind } from './allowlist.js';
 import { readPolicy, addRule, removeRule } from './policy.js';
 import { getWorkMode, setWorkMode } from './workmode.js';
+import { readConfig, setExePath, setUserDataDirs } from './config.js';
+import * as ops from './ops.js';
 
 /** Plugin name used by loader diagnostics. */
 export const name = 'real-browser-host';
@@ -33,9 +35,21 @@ export const name = 'real-browser-host';
  * requires, then provide it.
  */
 export function apply(ctx) {
+  // detectEnv 结果缓存（内存，5s TTL）：设置页/重复调用秒回，避免每次重跑
+  // PowerShell 检测（~1s）。force=true 绕过缓存（用户点「刷新检测」）。
+  let envCache = { at: 0, includeAvatars: false, value: null };
+  const ENV_CACHE_TTL = 5000;
   const service = {
-    async detectEnv(includeAvatars = false) {
-      return { browsers: detectEnvironment({ includeAvatars: Boolean(includeAvatars) }) };
+    async detectEnv(includeAvatars = false, force = false) {
+      const want = Boolean(includeAvatars);
+      const now = Date.now();
+      if (!force && envCache.value && now - envCache.at < ENV_CACHE_TTL && envCache.includeAvatars === want) {
+        return { browsers: envCache.value };
+      }
+      const browsers = detectEnvironment({ includeAvatars: want });
+      if (want) optimizeAvatars(browsers); // 大图 → 64px JPEG（内容哈希磁盘缓存）
+      envCache = { at: now, includeAvatars: want, value: browsers };
+      return { browsers };
     },
     async listRunning() {
       return { instances: discoverRunningBrowsers() };
@@ -80,6 +94,45 @@ export function apply(ctx) {
     /** 切换凭证隔离 Work Mode。 */
     async setWorkMode(enabled) {
       return { sensitive: setWorkMode(Boolean(enabled)) };
+    },
+    // ── 全局浏览器配置（~/.dsh/realbrowser-config.json） ──
+    /** 读取全局浏览器配置（exe 路径 + 用户数据目录，跨会话保留）。 */
+    async getConfig() {
+      return readConfig();
+    },
+    /**
+     * 写入全局浏览器配置。参数按位置传（exePaths, userDataDirs），每个为
+     * { [kind]: value } 对象，仅覆盖传入的 kind（undefined 表示不动该字段）。
+     */
+    async setConfig(exePaths, userDataDirs) {
+      if (exePaths && typeof exePaths === 'object') {
+        for (const [kind, v] of Object.entries(exePaths)) setExePath(kind, v);
+      }
+      if (userDataDirs && typeof userDataDirs === 'object') {
+        for (const [kind, v] of Object.entries(userDataDirs)) setUserDataDirs(kind, v);
+      }
+      return readConfig();
+    },
+    // ── 浏览器运维操作（对齐 GLBT「当前浏览器配置」右键菜单） ──
+    /** 组装完整启动命令（不启动；供查看/复制/快捷方式复用）。 */
+    async getLaunchCommand(exePath, userDataDir, profileId, port) {
+      return ops.getLaunchCommand({ exePath, userDataDir, profileId, port });
+    },
+    /** 新建用户数据目录（含最小 Local State，env 检测立即可见）。 */
+    async createUserDataDir(kind, parentDir, dirName) {
+      return ops.createUserDataDir({ kind, parentDir, dirName });
+    },
+    /** 创建桌面快捷方式（WScript.Shell）。 */
+    async createShortcut(kind, exePath, profileId, userDataDir, profileName, port) {
+      return ops.createShortcut({ kind, exePath, profileId, userDataDir, profileName, port });
+    },
+    /** 精确关闭某配置（按 user-data-dir/profile 匹配主进程，taskkill /T 整树）。 */
+    async closeProfile(kind, userDataDir, profileId) {
+      return ops.closeProfile({ kind, userDataDir, profileId });
+    },
+    /** 全部终止某浏览器（含所有独立目录实例；影响大，UI 须确认）。 */
+    async killAll(kind) {
+      return ops.killAll({ kind });
     },
   };
 

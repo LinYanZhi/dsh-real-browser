@@ -108,7 +108,7 @@ try {
   } finally {
     if (port) closeRealBrowser(port);
     server.close();
-    rmSync(tmp, { recursive: true, force: true });
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* EPERM: browser tree still releasing locks; leftover temp dir is harmless */ }
   }
 } finally {
   // restore the real policy file (from the state captured at the very start)

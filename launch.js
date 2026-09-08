@@ -155,7 +155,8 @@ export async function launchRealBrowser(opts) {
     return { pid: sameEnv.pid, port: sameEnv.port, wsUrl: undefined, tookOver: false, killed: 0, attached: true };
   }
 
-  const port = opts.port ?? (await pickFreePort());
+  // 0 / undefined both mean "auto-pick a free port" (client sends 0; AI tool omits).
+  const port = opts.port ? opts.port : await pickFreePort();
 
   // Takeover case: the same environment is running WITHOUT a port.
   if (sameEnv && !opts.force) {

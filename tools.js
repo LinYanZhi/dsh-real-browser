@@ -20,7 +20,7 @@ import { discoverRunningBrowsers } from './discover.js';
 import { launchRealBrowser, closeRealBrowser } from './launch.js';
 import { assertAllowed, isAllowed, toggleAllowed, readAllowlist, inferKind } from './allowlist.js';
 import { listTargets, evaluateJs, readPageDom, navigatePage } from './cdp.js';
-import { detectEnvironment, readProfiles } from './env.js';
+import { detectEnvironment, readProfiles, optimizeAvatars } from './env.js';
 import { snapshotInteractive } from './snapshot.js';
 import { auditStealth, cleanupStealthArtifacts } from './stealth.js';
 import { listDownloads, stopDownloadTracking } from './downloads.js';
@@ -347,10 +347,12 @@ export function apply(ctx) {
             if (ce.length) {
               lines.push(`  [可 CDP 驱动的环境]（非默认目录）`);
               for (const env of ce) {
-                lines.push(`    - ${env.user_data_dir}`);
+                const tag = env.user_configured ? '（自定义目录）' : '';
+                lines.push(`    - ${env.user_data_dir}${tag}`);
                 for (const p of env.profiles) {
                   const av = p.avatar_base64 ? (args.includeAvatars ? `avatar(${p.avatar_has_icon ? 'icon' : 'image'})` : '(has avatar)') : '';
-                  lines.push(`        * ${p.id} | name=${p.name}${p.user_name ? ` (${p.user_name})` : ''}${p.email ? ` | ${p.email}` : ''}${av ? ` | ${av}` : ''}`);
+                  const restr = p.restriction === 'multi_user' ? ' | 受限=同目录多用户(单实例锁)' : '';
+                  lines.push(`        * ${p.id} | name=${p.name}${p.user_name ? ` (${p.user_name})` : ''}${p.email ? ` | ${p.email}` : ''}${av ? ` | ${av}` : ''}${restr}`);
                 }
               }
             } else {
@@ -369,9 +371,11 @@ export function apply(ctx) {
       timeoutMs: 30000,
       isConcurrencySafe: () => true,
       async execute(args) {
-        const browsers = detectEnvironment({ includeAvatars: args.includeAvatars === true });
+        const wantAvatars = args.includeAvatars === true;
+        const browsers = detectEnvironment({ includeAvatars: wantAvatars });
+        if (wantAvatars) optimizeAvatars(browsers); // 大头像 → 64px JPEG（缓存），省 context
         const customProfiles = args.userDataDir
-          ? readProfiles(args.userDataDir, /edge/i.test(args.userDataDir), args.includeAvatars === true)
+          ? readProfiles(args.userDataDir, /edge/i.test(args.userDataDir), wantAvatars)
           : [];
         return { browsers, customProfiles };
       },

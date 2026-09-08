@@ -78,7 +78,7 @@ try {
 } finally {
   if (port) { stopNetworkTracking(port); closeRealBrowser(port); }
   server.close();
-  rmSync(tmp, { recursive: true, force: true });
+  try { rmSync(tmp, { recursive: true, force: true }); } catch { /* EPERM: browser tree still releasing locks; leftover temp dir is harmless */ }
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('cleaned up');
 }

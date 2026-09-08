@@ -68,7 +68,7 @@ try {
 } finally {
   if (port) closeRealBrowser(port);
   server.close();
-  rmSync(tmp, { recursive: true, force: true });
+  try { rmSync(tmp, { recursive: true, force: true }); } catch { /* EPERM: leftover temp dir is harmless */ }
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('cleaned up');
 }

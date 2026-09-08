@@ -69,23 +69,36 @@ dsh-real-browser/
 ├── captcha.js        # 验证码探测（reCAPTCHA/hCaptcha/Turnstile/Geetest/易盾/阿里云/通用）
 ├── cdp.js            # 零依赖 CDP 客户端：list/eval/dom/navigate + 提交态验证选页 + 不可达/端口占用清晰报错
 ├── discover.js       # 运行实例发现（PowerShell 扫进程 → 端口/目录/profile/后台标记）
-├── env.js            # 环境检测 + 能力模型（镜像 app-kit::browser_paths/profiles/avatar）
-├── launch.js         # 启动/附加/接管/关闭（镜像 app-kit start_or_connect + 内置护栏 + stealth 参数）
+├── env.js            # 环境检测 + 能力模型（镜像 app-kit::browser_paths/profiles/avatar）+ optimizeAvatars（大头像 → 64px JPEG，内容哈希缓存 ~/.dsh/cache/rb-avatars/）
+├── launch.js         # 启动/附加/接管/关闭（镜像 app-kit start_or_connect + 内置护栏 + stealth 参数；port 0/undefined 均自动分配）
 ├── snapshot.js       # 交互元素快照（ref 编号 + CSS 选择器生成 + 坐标/可见性；同源 iframe 递归 + 跨源标记；密码值页面内掩码）
 ├── interact.js       # 交互原语：click/fill/type/typeSecret/keys/select/check/hover/scroll/wait/find/tabs/network/upload/console（frame 解析层）
 ├── downloads.js      # 下载跟踪（持久浏览器级会话监听 Browser 下载事件）
 ├── network.js        # 实时网络捕获（持久页面级会话监听 Network 域，带真实 method/status）
 ├── tools.js          # 31 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed / autoGrant 审批；URL 策略守卫）
-├── host.js           # host 服务 realBrowser（typert RPC：detectEnv/listRunning/getAllowlist/setAllowed/launch/close）
+├── host.js           # host 服务 realBrowser（typert RPC：detectEnv/listRunning/getAllowlist/setAllowed/launch/close/getConfig/setConfig/getLaunchCommand/createUserDataDir/createShortcut/closeProfile/killAll；detectEnv 5s 内存缓存）
 ├── typert.js         # typert RPC 清单（zod codec；服务方法按清单参数顺序位置调用）
-├── client/           # web 客户端插件源码（React：「浏览器设置」栏目 + dev 徽标）
+├── config.js         # 全局浏览器配置（~/.dsh/realbrowser-config.json）：exe 路径 + 自定义用户数据目录，跨会话保留
+├── ops.js            # 运维操作：getLaunchCommand/createUserDataDir/createShortcut/closeProfile/killAll（PowerShell 零依赖）
+├── scripts/          # PowerShell 辅助（avatar-resize.ps1：System.Drawing 批量缩放头像，PS5.1 内置，零 npm 依赖）
+├── client/           # web 客户端插件源码（React：「浏览器设置」栏目 = 概览条 + 分段视图 当前浏览器配置/全局浏览器配置；dev 徽标）
 ├── build-client.mjs  # esbuild 打包 client/index.js → client.js（__ModuleLoader__.load 格式）
 ├── client.js         # 打包产物（web 加载的就是它；主题走 --dsw-alias-* token）
 ├── smoke.mjs         # 端到端冒烟（headless 临时 profile，自清理）
-└── tests/            # 注册/能力模型/护栏/host-RPC/交互/iframe/downloads/stealth/policy/vault/captcha/network 回归测试
+└── tests/            # 注册/能力模型/护栏/host-RPC/契约/config/交互/iframe/downloads/stealth/policy/vault/captcha/network 回归测试
 ```
 
-环境检测对照 `app-kit/shared/core/src/browser/`：注册表 App Paths + 标准路径、FileVersion/注册表版本、`Local State` 的 `/profile/info_cache`、7 级头像回退、下载目录（Preferences → 系统下载）、建议目录（同层含 Local State 兄弟 + "Edge Rpa/Chrome RPA" 变体）。
+环境检测对照 `app-kit/shared/core/src/browser/`：注册表 App Paths + 标准路径、FileVersion/注册表版本、`Local State` 的 `/profile/info_cache`、7 级头像回退、下载目录（Preferences → 系统下载）、建议目录（同层含 Local State 兄弟 + "Edge Rpa/Chrome RPA" 变体）。每个 profile 标注**受限等级**（对齐 GLBT profile-rules）：`default_dir`（默认路径不可 CDP）/ `multi_user`（同目录多用户，浏览器单实例锁）/ `none`；`real_browser_env` 的 render 与设置页 UI 均展示该标注。`realbrowser-config.json` 里的自定义目录自动合并进检测（AI 与设置页同一视图）。
+
+## 浏览器设置 UI（设置 → 浏览器设置）
+
+对标 GLBT「当前浏览器配置 + 全局浏览器配置」双面板（布局对齐其视觉语言，不复刻代码）：
+
+- **概览条**：已授权 x/y · 运行 n · 凭证隔离 Work Mode 开关 · 刷新检测；运行状态每 5s 轮询（●绿=运行带 CDP 端口）
+- **「当前浏览器配置」视图**＝授权边界（AI 能用什么）：按浏览器分组的**方形 profile 卡片网格墙**（对齐 GLBT 卡片：左上角 🔒默认/⚠多用户标记、右上角选中勾、大头像、名称/账号/来源目录、底部受限标签行「默认路径·不可用 / 多用户目录·受限 / 单用户目录·可用」），点卡片勾选/取消授权（默认目录点击提示不可用），组头全选/全不选，工具栏「隐藏不可控」开关（收掉默认路径配置），⋮ 菜单 = 启动 / 查看启动命令 / 创建桌面快捷方式 / 关闭该配置 / 全部终止
+- **「全局浏览器配置」视图**＝环境资产（机器上有什么+怎么管理）：顶部浏览器选择条（对齐 GLBT 左栏的角色，窄栏下用 tab）→ 选中浏览器详情面板——exe 路径编辑（持久化到 `realbrowser-config.json`）、用户数据目录块（🔒默认 / ⬡可 CDP / 自定义徽标 + profile 明细行：头像/账号/下载目录 + 命令/快捷方式/关闭行操作）、添加自定义目录、新建用户数据目录（含最小 Local State，env 检测立即可见）、移除自定义目录、全部终止（确认后执行）
+- URL 策略守卫（deny/requireApproval）不进设置页——AI 侧 `real_browser_policy` 工具保留
+- 授权边界与 AI 工具层共用 `~/.dsh/realbrowser-allowlist.json`——勾选即生效，无需重启
 
 ## 用法流程（AI 侧）
 

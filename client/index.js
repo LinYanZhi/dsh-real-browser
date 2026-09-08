@@ -2,17 +2,24 @@
  * dsh-real-browser — Client 面 Cordis 插件（DSH web 界面）。
  *
  * 在「设置」里注册「浏览器设置」栏目（settings.section 槽位）：
- * 显示已装浏览器 / 可 CDP 驱动的环境（RPA 子账号）/ 运行实例，
- * 数据经 host 侧 typert RPC（remote.realBrowser）获取。
+ *   - 概览条：配置总数 / 已授权 / 运行中 + 凭证隔离 Work Mode + 刷新检测
+ *   - 分段视图（不复刻 GLBT 布局）：
+ *       「当前配置」= 授权边界（AI 能用什么）—— 分组卡片墙，点选/组选/⋮菜单
+ *       「全局配置」= 环境资产（机器上有什么+怎么管理）—— 可折叠面板 + 内联编辑
+ *   - URL 策略守卫（deny / requireApproval）区块
+ * 数据经 host 侧 typert RPC（remote.realBrowser）获取；配置持久化到
+ * ~/.dsh/realbrowser-config.json / realbrowser-allowlist.json / realbrowser-policy.json。
  *
  * 打包：`node build-client.mjs` → client.js（esbuild CJS bundle）。
  * 声明：package.json `dsh.client.platform: web` + exports["./client"]。
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { TYPERT } from '../typert.js';
 import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives';
-import { EDGE_LOGO, CHROME_LOGO } from './icons.js';
+import { keyOf, copyText, Toast, CommandModal } from './widgets.js';
+import CurrentView from './current-view.js';
+import GlobalView from './global-view.js';
 
 export const name = 'real-browser-client';
 export const inject = ['remote', 'slots'];
@@ -26,25 +33,21 @@ export async function apply(ctx) {
   }
 
   // $mount expects a TypertRemoteContribution: { package, descriptors }.
-  // Reuse the host TYPERT manifest invocations — they ARE the wire contract.
   const contribution = { package: TYPERT.package, descriptors: TYPERT.invocations };
   try {
     await remote.$mount(contribution);
-    console.log('[dsh-real-browser] mounted remote contribution:', contribution.package);
   } catch (e) {
     console.warn('[dsh-real-browser] $mount failed:', e);
     return;
   }
   const rb = ctx.get('remote.realBrowser');
   if (!rb) {
-    console.warn('[dsh-real-browser] remote.realBrowser unavailable — typert manifest not wired on host?');
+    console.warn('[dsh-real-browser] remote.realBrowser unavailable');
     return;
   }
-  console.log('[dsh-real-browser] remote.realBrowser ready');
 
   // Gateway envelope is { ok, value } on success and { ok:false, error } on
-  // failure — treat non-ok as an error (throwing surfaces the real message in
-  // the panel instead of silently staying on "loading").
+  // failure — treat non-ok as an error.
   const call = async (method, ...args) => {
     const r = await rb[method](...args);
     if (r && typeof r === 'object' && 'ok' in r) {
@@ -58,22 +61,29 @@ export async function apply(ctx) {
   };
 
   const api = {
-    detectEnv: (includeAvatars) => call('detectEnv', Boolean(includeAvatars)),
+    detectEnv: (includeAvatars, force) => call('detectEnv', Boolean(includeAvatars), Boolean(force)),
     listRunning: () => call('listRunning'),
     getAllowlist: () => call('getAllowlist'),
-    setAllowed: (cfg) => call('setAllowed', cfg.kind, cfg.userDataDir, cfg.profileId, Boolean(cfg.allowed)),
+    setAllowed: (cfg) => call('setAllowed', cfg.kind, cfg.userDataDir, cfg.profileId ?? '', Boolean(cfg.allowed)),
     getPolicy: () => call('getPolicy'),
     policyAdd: (kind, pattern) => call('policyAdd', kind, pattern),
     policyRemove: (kind, pattern) => call('policyRemove', kind, pattern),
     getWorkMode: () => call('getWorkMode'),
     setWorkMode: (enabled) => call('setWorkMode', Boolean(enabled)),
+    getConfig: () => call('getConfig'),
+    setConfig: (exePaths, userDataDirs) => call('setConfig', exePaths ?? null, userDataDirs ?? null),
+    getLaunchCommand: (o) => call('getLaunchCommand', o.exePath, o.userDataDir, o.profileId ?? '', o.port ?? 0),
+    createUserDataDir: (o) => call('createUserDataDir', o.kind, o.parentDir, o.dirName),
+    createShortcut: (o) => call('createShortcut', o.kind, o.exePath, o.profileId ?? '', o.userDataDir, o.profileName, o.port ?? 0),
+    closeProfile: (o) => call('closeProfile', o.kind, o.userDataDir, o.profileId ?? ''),
+    killAll: (kind) => call('killAll', kind),
+    launch: (o) => call('launch', o.exePath, o.userDataDir, o.profileId ?? '', o.port ?? 0, o.url ?? '', o.headless ?? false, o.force ?? false),
   };
 
   ctx.slots.inject(
     'settings.section',
-    () => {
-      console.log('[dsh-real-browser] registering settings.section (浏览器设置)');
-      return ctx.slots.register(
+    () =>
+      ctx.slots.register(
         {
           name: 'settings.section',
           id: 'real-browser',
@@ -82,16 +92,12 @@ export async function apply(ctx) {
           inject: () => ({ api }),
         },
         BrowserSettings,
-      );
-    },
+      ),
   );
 
-  // 开发环境标记：仅在 dev DSH（realbrowser-dev profile, 端口 3090）时生效。
-  // 不显示「开发测试」文字徽标，改为把左上角 dsh logo 染成橙色，便于与主环境区分。
-  // 主环境(3080)不显示。
+  // 开发环境标记：dev DSH（realbrowser-dev profile, 3090）把左上角 logo 染成橙色。
   const isDev = typeof window !== 'undefined' && window.location.port === '3090';
   if (isDev) {
-    console.log('[dsh-real-browser] dev environment detected — orange brand mark');
     ctx.slots.inject('sidebar.brand.mark', () =>
       ctx.slots.register(
         { name: 'sidebar.brand.mark', id: 'real-browser-dev-mark', order: -1000 },
@@ -108,7 +114,6 @@ export async function apply(ctx) {
 }
 
 function DevBrandMark({ size }) {
-  // FishLogo 用 currentColor 填充：外层 span 设橙色即可把左上角 logo 染成橙色。
   return (
     <span style={{ color: '#f97316', display: 'inline-flex' }}>
       <FishLogo size={size} />
@@ -120,45 +125,16 @@ function DevBrandName() {
   return <BrandWordmark includeMark={false} />;
 }
 
-// ── 品牌识别：Edge / Chrome ──────────────────────────────────────────────
-const brandOf = (kind) => (kind === 'chrome' ? '#4285f4' : '#0078d4');
-
-/** Edge / Chrome 官方品牌 logo（内嵌 data URI，与 GLBT app-icons 同款）。 */
-function BrowserIcon({ kind, size = 32 }) {
-  const src = kind === 'chrome' ? CHROME_LOGO : EDGE_LOGO;
-  const label = kind === 'chrome' ? 'Google Chrome' : 'Microsoft Edge';
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        clipPath: 'circle(50%)',
-        overflow: 'hidden',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <img
-        src={src}
-        alt={label}
-        title={label}
-        draggable={false}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      />
-    </span>
-  );
-}
-
 // 少量 hover / 动效依赖类选择器（inline style 不支持 :hover）
 const UI_CSS = `
-.rb-card { transition: border-color .15s, box-shadow .15s; }
-.rb-card:hover { border-color: var(--dsw-alias-border-l3, #d0d7de); box-shadow: 0 2px 10px rgba(0,0,0,.07); }
 .rb-btn { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-module-platform, #fff); color: var(--dsw-alias-label-secondary); border-radius: 6px; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
 .rb-btn:hover:not(:disabled) { border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-interactive-bg-hover); }
 .rb-btn:disabled { opacity: .55; cursor: default; }
+.rb-input { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-module-platform, #fff); color: var(--dsw-alias-label-primary); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; outline: none; }
+.rb-input:focus { border-color: var(--dsw-alias-brand-primary, #4c8bf5); }
+.rb-link-btn { border: none; background: none; color: var(--dsw-alias-label-secondary); font-size: 11.5px; cursor: pointer; padding: 2px 5px; border-radius: 5px; }
+.rb-link-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.rb-icon-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .rb-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex-shrink: 0; user-select: none; }
 .rb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .rb-switch .track { position: relative; width: 34px; height: 18px; border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover, #e5e9ef); transition: background .18s; display: inline-block; }
@@ -166,54 +142,106 @@ const UI_CSS = `
 .rb-switch input:checked + .track { background: var(--dsw-alias-state-success-primary); }
 .rb-switch input:checked + .track .thumb { left: 18px; }
 .rb-switch input:focus-visible + .track { box-shadow: 0 0 0 2px var(--dsw-alias-brand-primary, #4c8bf5); }
-.rb-chip-x { border: none; background: none; cursor: pointer; padding: 0; line-height: 1; }
-.rb-chip-x:hover { opacity: .7; }
+.rb-card { transition: border-color .15s, box-shadow .15s, transform .08s; }
+.rb-card:hover { border-color: var(--dsw-alias-border-l3); box-shadow: 0 3px 12px rgba(0,0,0,.09); transform: translateY(-1px); }
+.rb-card--selected { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent) !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, transparent); }
+.rb-card--restricted { opacity: .6; }
+@keyframes rb-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 `;
 
-function BrowserSettings({ api }) {
-  const [browsers, setBrowsers] = useState([]); // 按浏览器分组：{kind, name, version, installed, groups:[{userDataDir, cdp, dirLabel, profiles:[cfg]}]}
-  const [allowedMap, setAllowedMap] = useState({});
-  const [running, setRunning] = useState([]);
-  const [policy, setPolicy] = useState({ deny: [], requireApproval: [] });
-  const [sensitive, setSensitive] = useState(false);
-  const [newPattern, setNewPattern] = useState('');
-  const [newKind, setNewKind] = useState('deny');
-  const [err, setErr] = useState(null);
-  const [loading, setLoading] = useState(false);
+/** 转换 detectEnv 原始输出 → 视图统一的 group 结构（含受限等级 / 自定义目录标注）。 */
+export function buildGroups(browsersRaw) {
+  const mkCfg = (b, p, userDataDir, cdp, userConfigured) => ({
+    kind: b.browser_type,
+    browserName: b.browser_name,
+    version: b.browser_version,
+    userDataDir,
+    cdp,
+    userConfigured: !!userConfigured,
+    exePath: (b.exe_paths && b.exe_paths[0]) || '',
+    profileId: p.id,
+    profileName: p.name,
+    user_name: p.user_name,
+    email: p.email,
+    path: p.path,
+    download_dir: p.download_dir,
+    avatar: p.avatar_base64 || '',
+    restriction: p.restriction || (cdp ? 'none' : 'default_dir'),
+  });
+  return (browsersRaw || []).map((b) => {
+    const blocks = [];
+    if (b.installed && (b.profiles || []).length) {
+      blocks.push({
+        userDataDir: b.default_user_data_dir,
+        cdp: false,
+        userConfigured: false,
+        profiles: (b.profiles || []).map((p) => mkCfg(b, p, b.default_user_data_dir, false, false)),
+      });
+    }
+    for (const env of b.cdp_environments || []) {
+      const ps = (env.profiles || []).map((p) => mkCfg(b, p, env.user_data_dir, true, env.user_configured));
+      if (ps.length) blocks.push({ userDataDir: env.user_data_dir, cdp: true, userConfigured: !!env.user_configured, profiles: ps });
+    }
+    return {
+      kind: b.browser_type,
+      browserName: b.browser_name,
+      version: b.browser_version,
+      installed: b.installed,
+      exePaths: b.exe_paths || [],
+      defaultUserDataDir: b.default_user_data_dir,
+      blocks,
+      profiles: blocks.flatMap((bl) => bl.profiles),
+    };
+  });
+}
 
-  const load = useCallback(async () => {
+/** localStorage 检测缓存：打开设置页首帧立即渲染上次结果（后台刷新覆盖），消除转圈等待。 */
+const ENV_CACHE_KEY = 'rb-env-cache-v2'; // v2：头像均为优化后小图，且 ProfileAvatar 不再做 mime 白名单
+function loadEnvCache() {
+  try {
+    const raw = localStorage.getItem(ENV_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.browsers) ? parsed.browsers : [];
+  } catch { return []; }
+}
+function saveEnvCache(browsers) {
+  try { localStorage.setItem(ENV_CACHE_KEY, JSON.stringify({ at: Date.now(), browsers })); } catch { /* quota/best effort */ }
+}
+
+function BrowserSettings({ api }) {
+  const [rawBrowsers, setRawBrowsers] = useState(loadEnvCache);
+  const [allowlist, setAllowlist] = useState({ environments: [] });
+  const [running, setRunning] = useState([]);
+  const [config, setConfig] = useState({ exePaths: {}, userDataDirs: {} });
+  const [view, setView] = useState('global');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [cmdModal, setCmdModal] = useState(null);
+
+  const showToast = useCallback((text, tone = 'ok') => setToast({ text, tone }), []);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const refresh = useCallback(async (force = false) => {
     setLoading(true);
     setErr(null);
     try {
-      const d = await api.detectEnv(true); // 带头像
-      const al = await api.getAllowlist();
-      const allowed = new Set(((al && al.environments) || []).map((e) => keyOf(e)));
-      const mkCfg = (kind, browserName, version, userDataDir, p, cdp) => ({
-        kind, browserName, version, userDataDir, cdp,
-        profileId: p.id, profileName: p.name, user_name: p.user_name, email: p.email,
-        path: p.path, download_dir: p.download_dir, avatar: p.avatar_base64 || '',
-      });
-      const out = [];
-      (d && d.browsers || []).forEach((b) => {
-        if (!b.installed) { out.push({ kind: b.browser_type, name: b.browser_name, version: '', installed: false, groups: [] }); return; }
-        const groups = [];
-        const defProfiles = (b.profiles || []).map((p) => mkCfg(b.browser_type, b.browser_name, b.browser_version, b.default_user_data_dir, p, false));
-        if (defProfiles.length) groups.push({ userDataDir: b.default_user_data_dir, cdp: false, dirLabel: '默认目录 · 不可CDP', profiles: defProfiles });
-        (b.cdp_environments || []).forEach((env) => {
-          const ps = (env.profiles || []).map((p) => mkCfg(b.browser_type, b.browser_name, b.browser_version, env.user_data_dir, p, true));
-          if (ps.length) groups.push({ userDataDir: env.user_data_dir, cdp: true, dirLabel: '可CDP 驱动', profiles: ps });
-        });
-        out.push({ kind: b.browser_type, name: b.browser_name, version: b.browser_version, installed: true, groups });
-      });
-      setBrowsers(out);
-      const all = out.flatMap((b) => b.groups.flatMap((g) => g.profiles));
-      setAllowedMap(Object.fromEntries(all.map((c) => [keyOf(c), allowed.has(keyOf(c))])));
-      const r = await api.listRunning();
+      const [d, al, r, cfg] = await Promise.all([
+        api.detectEnv(true, force),
+        api.getAllowlist(),
+        api.listRunning(),
+        api.getConfig(),
+      ]);
+      setRawBrowsers((d && d.browsers) || []);
+      if (d && d.browsers) saveEnvCache(d.browsers);
+      setAllowlist((al && al.environments) ? { environments: al.environments } : { environments: [] });
       setRunning((r && r.instances) || []);
-      const pl = await api.getPolicy();
-      setPolicy({ deny: (pl && pl.deny) || [], requireApproval: (pl && pl.requireApproval) || [] });
-      const wm = await api.getWorkMode();
-      setSensitive(!!(wm && wm.sensitive));
+      setConfig((cfg && { exePaths: cfg.exePaths || {}, userDataDirs: cfg.userDataDirs || {} }) || { exePaths: {}, userDataDirs: {} });
     } catch (e) {
       setErr(String((e && e.message) || e));
     } finally {
@@ -221,225 +249,190 @@ function BrowserSettings({ api }) {
     }
   }, [api]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { refresh(); }, [refresh]);
 
-  // 运行实例 → 命中 profile 的 key（kind\0userDataDir\0profileId）
-  const runningMap = {};
-  for (const i of running) {
-    const k = `${i.kind}\u0000${i.userDataDir || ''}\u0000${i.profileId || ''}`;
-    runningMap[k] = runningMap[k] || [];
-    runningMap[k].push(i);
-  }
-  const runningCount = Object.keys(runningMap).length;
+  // 运行实例轮询（5s）：仅更新 running，不打扰其它状态
+  useEffect(() => {
+    const t = setInterval(() => {
+      api.listRunning().then((r) => setRunning((r && r.instances) || [])).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [api]);
+
+  const groups = useMemo(() => buildGroups(rawBrowsers), [rawBrowsers]);
+  const allowedSet = useMemo(
+    () => new Set((allowlist.environments || []).map((e) => keyOf(e))),
+    [allowlist],
+  );
+  // 运行实例 → per-profile 端口（Map<key,{port}>）；cfg 查精确 key，fallback 同目录无 profile 标识
+  const [runningMap, setRunningMap] = useState(new Map());
+  useEffect(() => {
+    const m = new Map();
+    for (const i of running) {
+      m.set(`${i.kind}\u0000${i.userDataDir || ''}\u0000${i.profileId || ''}`, { port: i.port });
+    }
+    setRunningMap(m);
+  }, [running]);
+  const runningOf = useCallback(
+    (cfg) => runningMap.get(keyOf(cfg)) || runningMap.get(`${cfg.kind}\u0000${cfg.userDataDir}\u0000`),
+    [runningMap],
+  );
+
+  const allCount = groups.reduce((n, g) => n + g.profiles.length, 0);
+  const allowedCount = groups.reduce((n, g) => n + g.profiles.filter((c) => allowedSet.has(keyOf(c))).length, 0);
+  const runningCount = groups.reduce((n, g) => n + g.profiles.filter((c) => runningOf(c)).length, 0);
 
   const toggle = useCallback(async (cfg) => {
-    const next = !allowedMap[keyOf(cfg)];
+    const next = !allowedSet.has(keyOf(cfg));
     setErr(null);
     try {
       await api.setAllowed({ ...cfg, allowed: next });
-      setAllowedMap((m) => ({ ...m, [keyOf(cfg)]: next }));
+      const al = await api.getAllowlist();
+      setAllowlist({ environments: (al && al.environments) || [] });
     } catch (e) { setErr(String((e && e.message) || e)); }
-  }, [api, allowedMap]);
+  }, [api, allowedSet]);
 
-  const toggleWorkMode = useCallback(async () => {
+  const toggleGroup = useCallback(async (kind, selectables, checked) => {
     setErr(null);
     try {
-      const wm = await api.setWorkMode(!sensitive);
-      setSensitive(!!(wm && wm.sensitive));
-    } catch (e) { setErr(String((e && e.message) || e)); }
-  }, [api, sensitive]);
-
-  const addPolicyRule = useCallback(async () => {
-    const pattern = newPattern.trim();
-    if (!pattern) return;
-    setErr(null);
-    try {
-      const pl = await api.policyAdd(newKind, pattern);
-      setPolicy({ deny: (pl && pl.policy && pl.policy.deny) || [], requireApproval: (pl && pl.policy && pl.policy.requireApproval) || [] });
-      setNewPattern('');
-    } catch (e) { setErr(String((e && e.message) || e)); }
-  }, [api, newPattern, newKind]);
-
-  const removePolicyRule = useCallback(async (kind, pattern) => {
-    setErr(null);
-    try {
-      const pl = await api.policyRemove(kind, pattern);
-      setPolicy({ deny: (pl && pl.policy && pl.policy.deny) || [], requireApproval: (pl && pl.policy && pl.policy.requireApproval) || [] });
+      await Promise.all(selectables.map((c) => api.setAllowed({ ...c, allowed: checked })));
+      const al = await api.getAllowlist();
+      setAllowlist({ environments: (al && al.environments) || [] });
     } catch (e) { setErr(String((e && e.message) || e)); }
   }, [api]);
 
-  const allCount = browsers.reduce((n, b) => n + b.groups.reduce((m, g) => m + g.profiles.length, 0), 0);
-  const allowedCount = Object.values(allowedMap).filter(Boolean).length;
+  // ── 卡片 ⋮ 菜单动作 ──
+  const onMenu = useCallback(async (action, cfg) => {
+    setErr(null);
+    try {
+      if (action === 'launch') {
+        const res = await api.launch({ exePath: cfg.exePath, userDataDir: cfg.userDataDir, profileId: cfg.profileId, port: 0, url: '', headless: false, force: false });
+        showToast(res && res.attached ? `已接管运行中的浏览器（端口 ${res.port}）` : `已启动（PID ${res.pid || '-'}，端口 ${res.port}）`);
+        refresh();
+      } else if (action === 'command') {
+        const info = await api.getLaunchCommand({ exePath: cfg.exePath, userDataDir: cfg.userDataDir, profileId: cfg.profileId, port: 0 });
+        setCmdModal(info);
+      } else if (action === 'shortcut') {
+        const r = await api.createShortcut({ kind: cfg.kind, exePath: cfg.exePath, profileId: cfg.profileId, userDataDir: cfg.userDataDir, profileName: cfg.profileName || cfg.profileId, port: 0 });
+        showToast(r.overwritten ? `已覆盖桌面快捷方式: ${r.shortcut_path}` : `已创建桌面快捷方式: ${r.shortcut_path}`);
+      } else if (action === 'close') {
+        const r = await api.closeProfile(cfg);
+        showToast(`已关闭 ${r.killed} 个进程`, r.killed > 0 ? 'ok' : 'warn');
+        refresh();
+      } else if (action === 'killAll') {
+        const r = await api.killAll(cfg.kind);
+        showToast(`已终止全部 ${cfg.kind === 'chrome' ? 'Chrome' : 'Edge'} 进程（${r.killed} 个主进程）`);
+        refresh();
+      }
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, refresh, showToast]);
+
+  // ── 全局配置动作 ──
+  const onSetExe = useCallback(async (kind, exePath) => {
+    try {
+      const cfg = await api.setConfig({ [kind]: exePath }, null);
+      setConfig({ exePaths: cfg.exePaths || {}, userDataDirs: cfg.userDataDirs || {} });
+      showToast(`已保存 ${kind} 的 exe 路径`);
+      refresh();
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, refresh, showToast]);
+
+  const onAddDir = useCallback(async (kind, dir) => {
+    try {
+      const list = [...(config.userDataDirs[kind] || []).filter((d) => d !== dir), dir];
+      const cfg = await api.setConfig(null, { [kind]: list });
+      setConfig({ exePaths: cfg.exePaths || {}, userDataDirs: cfg.userDataDirs || {} });
+      showToast(`已添加自定义目录: ${dir}`);
+      refresh();
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, config, refresh, showToast]);
+
+  const onCreateDir = useCallback(async (kind, parent, name) => {
+    try {
+      const r = await api.createUserDataDir({ kind, parentDir: parent, dirName: name });
+      // 自动加入自定义目录配置，保证检测/授权可见
+      const path = r.path;
+      const list = [...(config.userDataDirs[kind] || []).filter((d) => d !== path), path];
+      await api.setConfig(null, { [kind]: list });
+      setConfig({ exePaths: (await api.getConfig()).exePaths || {}, userDataDirs: (await api.getConfig()).userDataDirs || {} });
+      showToast(r.existed ? `目录已存在并加入配置: ${path}` : `已创建用户数据目录: ${path}`);
+      refresh();
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, config, refresh, showToast]);
+
+  const onRemoveDir = useCallback(async (kind, dir) => {
+    try {
+      const list = (config.userDataDirs[kind] || []).filter((d) => d !== dir);
+      const cfg = await api.setConfig(null, { [kind]: list });
+      setConfig({ exePaths: cfg.exePaths || {}, userDataDirs: cfg.userDataDirs || {} });
+      showToast(`已移除自定义目录: ${dir}`);
+      refresh();
+    } catch (e) { setErr(String((e && e.message) || e)); }
+  }, [api, config, refresh, showToast]);
 
   return (
     <>
       <style>{UI_CSS}</style>
       <div style={{ padding: '4px 0' }}>
+        {/* 概览条 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 14 }}>浏览器配置</strong>
-          <button type="button" className="rb-btn" onClick={load} disabled={loading} style={{ fontSize: 12, padding: '3px 10px' }}>
+          <button type="button" className="rb-btn" onClick={() => refresh(true)} disabled={loading} style={{ fontSize: 12, padding: '3px 10px' }}>
             {loading ? '检测中…' : '↻ 刷新检测'}
           </button>
-          <label className="rb-switch" title="凭证隔离：开启后填密环节的值不回显给 AI（密码框任何模式下都不回显）">
-            <input type="checkbox" checked={sensitive} onChange={toggleWorkMode} />
-            <span className="track"><span className="thumb" /></span>
-            <span style={{ fontSize: 12, color: sensitive ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', fontWeight: sensitive ? 600 : 400 }}>
-              {sensitive ? '凭证隔离 ON · 值不回显' : '凭证隔离 Work Mode'}
-            </span>
-          </label>
-          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginLeft: 'auto' }}>
-            已允许 <b style={{ color: allowedCount === allCount && allCount > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedCount}</b>/{allCount} 个配置{runningCount ? ` · ${runningCount} 个配置运行中` : ''}
+          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+            已授权 <b style={{ color: allowedCount === allCount && allCount > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedCount}</b>/{allCount} 个配置
+            {runningCount ? ` · 运行 ${runningCount}` : ''}
           </span>
         </div>
-        <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: '0 0 12px', lineHeight: 1.6 }}>
-          勾选 = 允许 AI 操作该浏览器配置（AI 只能在勾选的配置内启动/驱动浏览器）。Edge 与 Chrome 分区展示，头像来自各 profile 的用户配置。
-        </p>
-        {err && <p style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)', borderRadius: 6, padding: '6px 10px' }}>错误: {err}</p>}
-        {allCount === 0 && !err && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>加载中…</p>}
 
-      {browsers.map((b) => {
-        const brand = brandOf(b.kind);
-        const cnt = b.groups.reduce((n, g) => n + g.profiles.length, 0);
-        const allowedN = b.groups.reduce((n, g) => n + g.profiles.filter((c) => allowedMap[keyOf(c)] === true).length, 0);
-        const anyRunning = b.groups.some((g) => g.profiles.some((c) => (runningMap[keyOf(c)] || []).length > 0));
-        return (
-          <div key={b.kind} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, marginBottom: 12, overflow: 'hidden', background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
-            {/* 浏览器品牌头 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderLeft: `4px solid ${brand}`, borderBottom: '1px solid var(--dsw-alias-border-l1)' }}>
-              <BrowserIcon kind={b.kind} size={38} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 700, fontSize: 15 }}>{b.name}</span>
-                  {b.installed ? (
-                    <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-interactive-bg-hover)', borderRadius: 10, padding: '1px 8px' }}>v{b.version || '?'}</span>
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-error-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent)', borderRadius: 10, padding: '1px 8px' }}>未安装</span>
-                  )}
-                  {anyRunning && <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-success-primary)', background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent)', borderRadius: 10, padding: '1px 8px' }}>● 有实例运行</span>}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', marginTop: 2 }}>
-                  {b.kind === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'}{b.installed ? '' : ' · 未检测到安装'}
-                </div>
-              </div>
-              {b.installed && (
-                <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>
-                  已允许 <b style={{ color: allowedN === cnt && cnt > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedN}</b>/{cnt}
-                </span>
-              )}
-            </div>
-            {/* 主体：分组 + profile 卡片 */}
-            <div style={{ padding: '10px 14px 12px' }}>
-              {!b.installed && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>未检测到该浏览器。</p>}
-              {b.groups.map((g, gi) => (
-                <div key={g.userDataDir} style={{ marginBottom: gi === b.groups.length - 1 ? 0 : 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '6px 0 8px' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', flexShrink: 0 }} />
-                    <span style={{ color: g.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {g.cdp ? '可 CDP 驱动' : '默认目录 · 不可 CDP'}
-                    </span>
-                    <span style={{ color: 'var(--dsw-alias-label-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.userDataDir}>{g.userDataDir}</span>
-                  </div>
-                  {g.profiles.map((c) => (
-                    <ProfileCard key={keyOf(c)} cfg={c} accent={brand} allowed={allowedMap[keyOf(c)] === true} running={runningMap[keyOf(c)] || []} onToggle={() => toggle(c)} />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* URL 策略守卫（AI 操作边界的第二层） */}
-      <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: '12px 14px', marginTop: 4, background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>URL 策略守卫</span>
-          <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>deny 硬拦截 AI 操作匹配 URL；requireApproval 让匹配操作先弹审批（* = 任意串，不写 * = 精确匹配）</span>
+        {/* 分段切换 */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          {[
+            { k: 'global', label: '全局浏览器配置' },
+            { k: 'current', label: '当前浏览器配置' },
+          ].map((s) => (
+            <button
+              key={s.k}
+              type="button"
+              onClick={() => setView(s.k)}
+              style={{
+                fontSize: 12.5, padding: '5px 14px', borderRadius: 999, cursor: 'pointer',
+                border: view === s.k ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)',
+                background: view === s.k ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent)' : 'var(--dsw-alias-bg-module-platform, #fff)',
+                color: view === s.k ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+                fontWeight: view === s.k ? 600 : 400,
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-          <select className="rb-btn" value={newKind} onChange={(e) => setNewKind(e.target.value)} style={{ fontSize: 12, padding: '4px 8px' }}>
-            <option value="deny">deny</option>
-            <option value="requireApproval">requireApproval</option>
-          </select>
-          <input
-            className="rb-btn"
-            value={newPattern}
-            onChange={(e) => setNewPattern(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') addPolicyRule(); }}
-            placeholder="如 *checkout* 或 https://*.bank.com/*"
-            style={{ flex: 1, minWidth: 180, fontSize: 12, padding: '4px 8px' }}
+
+        {err && <p style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)', borderRadius: 6, padding: '6px 10px', marginBottom: 10 }}>错误: {err}</p>}
+        {allCount === 0 && !err && <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginBottom: 10 }}>加载中…</p>}
+
+        {view === 'current' ? (
+          <CurrentView groups={groups} allowedSet={allowedSet} runningMap={runningMap} onToggle={toggle} onToggleGroup={toggleGroup} onMenu={onMenu} onToast={showToast} />
+        ) : (
+          <GlobalView
+            groups={groups}
+            config={config}
+            runningMap={runningMap}
+            onSetExe={onSetExe}
+            onAddDir={onAddDir}
+            onRemoveDir={onRemoveDir}
+            onCreateDir={onCreateDir}
+            onAction={onMenu}
+            onToast={showToast}
           />
-          <button type="button" className="rb-btn" onClick={addPolicyRule} style={{ fontSize: 12, padding: '4px 12px' }}>添加规则</button>
-        </div>
-        {policy.deny.length === 0 && policy.requireApproval.length === 0 && (
-          <p style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, margin: 0 }}>无规则 —— AI 可操作任意目标 URL（仍受上方「允许列表」的环境边界约束）。</p>
         )}
-        {policy.deny.map((p) => (
-          <RuleChip key={`deny-${p}`} label={`deny: ${p}`} tone="error" onRemove={() => removePolicyRule('deny', p)} />
-        ))}
-        {policy.requireApproval.map((p) => (
-          <RuleChip key={`ra-${p}`} label={`requireApproval: ${p}`} tone="warn" onRemove={() => removePolicyRule('requireApproval', p)} />
-        ))}
       </div>
-    </div>
+      {cmdModal && <CommandModal info={cmdModal} onClose={() => setCmdModal(null)} onCopy={() => copyText(cmdModal.command_line).then((ok) => showToast(ok ? '已复制启动命令' : '复制失败', ok ? 'ok' : 'error'))} />}
+      <Toast text={toast ? toast.text : null} tone={toast ? toast.tone : 'ok'} />
     </>
   );
 }
 
-function RuleChip({ label, tone, onRemove }) {
-  const color = tone === 'error' ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-warn-primary)';
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`, background: `color-mix(in srgb, ${color} 10%, transparent)`, color, borderRadius: 10, padding: '2px 8px', margin: '0 6px 6px 0', fontSize: 12, fontFamily: 'monospace' }}>
-      {label}
-      <button type="button" className="rb-chip-x" onClick={onRemove} style={{ color, fontSize: 12 }} title="移除规则">✕</button>
-    </span>
-  );
-}
-
-function ProfileCard({ cfg, accent, allowed, running, onToggle }) {
-  const portText = running.map((i) => (i.port ? `:${i.port}` : '')).join('');
-  return (
-    <div className="rb-card" style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: 'var(--dsw-alias-bg-module-platform, #fff)' }}>
-      {/* 头像：圆形 + 品牌色描边（透明头像直接透过去，不加背景色） */}
-      <div style={{ width: 44, height: 44, borderRadius: '50%', clipPath: 'circle(50%)', overflow: 'hidden', flexShrink: 0, border: `2px solid ${accent}66`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {cfg.avatar ? (
-          <img src={cfg.avatar} alt={cfg.profileName} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: '50%', clipPath: 'circle(50%)' }} />
-        ) : (
-          <span style={{ fontWeight: 700, fontSize: 18, color: accent }}>{(cfg.profileName || '?').charAt(0).toUpperCase()}</span>
-        )}
-      </div>
-      {/* 信息 */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{cfg.profileName}</span>
-          <span style={{ fontSize: 11, color: cfg.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)', border: `1px solid ${cfg.cdp ? 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent)' : 'var(--dsw-alias-border-l3)'}`, borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>
-            {cfg.cdp ? '可CDP' : '不可CDP'}
-          </span>
-          {running.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-success-primary)', background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>● 运行中{portText}</span>
-          )}
-          {cfg.user_name && <span style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>{cfg.user_name}</span>}
-          {cfg.email && <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>{cfg.email}</span>}
-        </div>
-        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ whiteSpace: 'nowrap' }}>Profile <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }}>{cfg.profileId}</code></span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }} title={cfg.download_dir}>
-            下载 <code style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 4, padding: '0 3px' }}>{cfg.download_dir}</code>
-          </span>
-        </div>
-        <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cfg.path}>
-          {cfg.path}
-        </div>
-      </div>
-      {/* 允许 AI switch */}
-      <label className="rb-switch" title={allowed ? '已允许 AI 操作该配置，点击撤销' : '允许 AI 操作该配置'}>
-        <input type="checkbox" checked={allowed} onChange={onToggle} />
-        <span className="track"><span className="thumb" /></span>
-        <span style={{ fontSize: 12, color: allowed ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>允许 AI</span>
-      </label>
-    </div>
-  );
-}
-
-function keyOf(e) {
-  return `${e.kind}\u0000${e.userDataDir}\u0000${e.profileId ?? ''}`;
-}
+// ── 供测试/复用导出 ──
+export { BrowserSettings };

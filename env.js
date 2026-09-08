@@ -26,10 +26,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import { EDGE_PRESET_AVATARS } from './edge-avatars.js';
+import { readConfig } from './config.js';
 
 const LOCAL_APPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const SYSTEM_DOWNLOAD = path.join(os.homedir(), 'Downloads');
@@ -394,34 +397,55 @@ export function readProfiles(userDataDir, isEdge, includeAvatars = true) {
 
 /**
  * Detect one browser (Edge or Chrome) — mirrors browser_paths.rs detect_edge/detect_chrome.
+ * 合并用户显式配置（~/.dsh/realbrowser-config.json）：自定义 exe 路径与自定义
+ * 用户数据目录（如自建 RPA 环境）跨会话保留，检测时并入 suggested 目录与
+ * cdp_environments；每个 profile 标注受限等级（对齐 GLBT profile-rules 三档）。
  * @param {'edge'|'chrome'} kind
- * @param {object} [opts] - { includeAvatars?: boolean, includeBase64?: boolean }
+ * @param {object} [opts] - { includeAvatars?: boolean, includeBase64?: boolean, userConfig?: object }
  */
 export function detectBrowser(kind, opts = {}) {
   const def = BROWSER_DEFS[kind];
   if (!def) throw new Error(`unknown browser kind: ${kind}`);
 
   const reg = psRegistryAndDirs(def);
+  const userCfg = opts.userConfig || { exePaths: {}, userDataDirs: {} };
+  const userExe = typeof userCfg.exePaths?.[kind] === 'string' ? userCfg.exePaths[kind] : '';
+  const userDirs = Array.isArray(userCfg.userDataDirs?.[kind]) ? userCfg.userDataDirs[kind] : [];
 
   const exePaths = [];
   const appPath = reg?.appPath;
   if (typeof appPath === 'string' && appPath && existsSync(appPath)) exePaths.push(appPath);
   for (const p of def.standardPaths) if (existsSync(p)) exePaths.push(p);
+  if (userExe && existsSync(userExe)) exePaths.push(userExe);
   // dedup, sort
   const unique = [...new Set(exePaths)].sort();
 
   const installed = unique.length > 0;
   const defaultUserDataDir = def.defaultUserDataDir;
+
+  // 用户自定义目录：规范化 + 去重；仅存在的目录纳入检测（不存在的在 UI 提示）
+  const userDirsExisting = [...new Set(userDirs.map((d) => String(d).replace(/[\\/]+$/, '')))].filter((d) => d && existsSync(d));
+
   const userDataDirs = existsSync(defaultUserDataDir) ? [defaultUserDataDir] : [];
-  const suggestedUserDataDirs = [...(reg?.siblings ?? []), ...(reg?.rpaDirs ?? [])];
+  const suggestedUserDataDirs = [
+    ...(reg?.siblings ?? []),
+    ...(reg?.rpaDirs ?? []),
+    ...userDirsExisting,
+  ].filter((d) => !userDataDirs.includes(d));
 
   // version: exe FileVersion preferred, registry fallback
   const browserVersion =
     (reg?.fileVersion || '') ||
     (Array.isArray(reg?.versions) && reg.versions.length > 0 ? reg.versions[0] : '');
 
+  // 受限等级标注（对齐 GLBT profile-rules 三档，源自 2026-08-19 踩坑实测）：
+  //   default_dir — 浏览器默认用户路径：完全受限，不可 CDP 自动化（只能走浏览器自身 UI）
+  //   multi_user  — 同 user-data-dir 含多个用户：浏览器单实例锁（同目录同时只能开一个实例）→ 部分受限
+  //   none        — 单用户目录：完全规范可用
+  const annotate = (profiles, restriction) => profiles.map((p) => ({ ...p, restriction }));
+
   const profiles = installed
-    ? readProfiles(defaultUserDataDir, kind === 'edge', opts.includeAvatars !== false)
+    ? annotate(readProfiles(defaultUserDataDir, kind === 'edge', opts.includeAvatars !== false), 'default_dir')
     : [];
 
   // Capability model (built-in platform knowledge, so callers/AI don't have to
@@ -432,11 +456,16 @@ export function detectBrowser(kind, opts = {}) {
   //    CAN be debug-launched with `--remote-debugging-port`
   const cdpEnvironments = suggestedUserDataDirs
     .filter((d) => existsSync(d))
-    .map((d) => ({
-      user_data_dir: d,
-      cdp_supported: true,
-      profiles: readProfiles(d, kind === 'edge', opts.includeAvatars !== false),
-    }));
+    .map((d) => {
+      const ps = readProfiles(d, kind === 'edge', opts.includeAvatars !== false);
+      const restriction = ps.length > 1 ? 'multi_user' : 'none';
+      return {
+        user_data_dir: d,
+        cdp_supported: true,
+        user_configured: userDirsExisting.includes(d),
+        profiles: annotate(ps, restriction),
+      };
+    });
 
   return {
     browser_type: kind,
@@ -459,11 +488,131 @@ export function detectBrowser(kind, opts = {}) {
 
 /**
  * Detect the whole environment: Edge + Chrome (Ziniao comes later).
+ * 合并 ~/.dsh/realbrowser-config.json 的用户显式配置。
  * @returns {Array} BrowserInfo-like objects for installed/present browsers.
  */
 export function detectEnvironment(opts = {}) {
+  const userConfig = opts.userConfig || readConfig();
   return [
-    detectBrowser('edge', opts),
-    detectBrowser('chrome', opts),
+    detectBrowser('edge', { ...opts, userConfig }),
+    detectBrowser('chrome', { ...opts, userConfig }),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Avatar optimization — real profile pictures (Screenshots/*, "Profile
+// Picture.png", Avatar dir…) can be 80–400KB each as base64, which bloats the
+// RPC payload and UI rendering. Shrink anything larger than AVATAR_MIN_OPTIMIZE
+// to a 64px JPEG via scripts/avatar-resize.ps1 (System.Drawing — built into
+// Windows PowerShell 5.1, zero npm deps). Results are cached under
+// ~/.dsh/cache/rb-avatars/ (content-hashed); every failure degrades to the
+// original avatar, so detection never breaks because of a resize hiccup.
+// ---------------------------------------------------------------------------
+const avatarCacheDir = path.join(os.homedir(), '.dsh', 'cache', 'rb-avatars');
+const AVATAR_MIN_OPTIMIZE = 24 * 1024; // base64 length: only touch > ~18KB images
+const AVATAR_TARGET = 64;
+const memAvatarCache = new Map(); // sha1(raw) -> small base64 data URL
+
+function stripDataUrl(b64) {
+  const s = String(b64 || '');
+  if (!s.startsWith('data:image/')) return null;
+  const idx = s.indexOf(';base64,');
+  if (idx < 0) return null;
+  // base64 可能含换行（preset/ico 常量里见过），去掉所有空白再解码
+  const raw = s.slice(idx + 8).replace(/\s+/g, '');
+  if (!raw) return null;
+  const mime = s.slice(5, idx);
+  const rawExt = mime.split('/')[1] || 'png';
+  const ext = rawExt === 'x-icon' ? 'ico' : rawExt.replace('jpeg', 'jpg');
+  return { raw, ext };
+}
+
+/**
+ * In-place: replace avatar_base64 of every large avatar with a 64px JPEG
+ * (content-cached). Returns the same array for chaining.
+ */
+export function optimizeAvatars(browsers) {
+  if (!Array.isArray(browsers)) return browsers;
+
+  // 1) collect candidates (skip tiny / non-base64 avatars)
+  //    遍历默认路径 profiles + cdp_environments 各目录 profiles
+  const todo = [];
+  const eachProfile = (fn) => {
+    for (const b of browsers) {
+      for (const p of (b.profiles || [])) fn(p);
+      for (const c of (b.cdp_environments || [])) {
+        for (const p of (c.profiles || [])) fn(p);
+      }
+    }
+  };
+  eachProfile((p) => {
+    const b64 = String(p.avatar_base64 || '');
+    if (!b64) return;
+    const st = stripDataUrl(b64);
+    if (!st) return;
+    // image/x-icon 无条件转换：统一为 JPEG（GLBT 前端 img 也能直接显示 ico，
+    // 但转 JPEG 可瘦身且格式统一）；其它格式只在超阈值时瘦身
+    const isIcon = st.ext === 'ico';
+    if (!isIcon && b64.length < AVATAR_MIN_OPTIMIZE) return;
+    const hash = createHash('sha1').update(st.raw).digest('hex').slice(0, 24);
+    todo.push({ p, hash, ext: st.ext });
+  });
+  if (todo.length === 0) return browsers;
+
+  // 2) mem + disk cache hits
+  let missing = [];
+  try { mkdirSync(avatarCacheDir, { recursive: true }); } catch { /* best effort */ }
+  for (const t of todo) {
+    const mem = memAvatarCache.get(t.hash);
+    if (mem) { t.p.avatar_base64 = mem; continue; }
+    const jp = path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
+    try {
+      const small = readFileSync(jp, 'utf8');
+      if (small) {
+        const b64 = `data:image/jpeg;base64,${small}`;
+        t.p.avatar_base64 = b64;
+        memAvatarCache.set(t.hash, b64);
+        continue;
+      }
+    } catch { /* not cached */ }
+    missing.push(t);
+  }
+  if (missing.length === 0) return browsers;
+
+  // 3) batch resize via one PowerShell run
+  const tmpDir = path.join(os.tmpdir(), `rb-av-${process.pid}-${Date.now()}`);
+  try {
+    const inDir = path.join(tmpDir, 'in');
+    const outDir = path.join(tmpDir, 'out');
+    mkdirSync(inDir, { recursive: true });
+    mkdirSync(outDir, { recursive: true });
+    for (const t of missing) {
+      const st = stripDataUrl(t.p.avatar_base64);
+      if (!st) continue;
+      try { writeFileSync(path.join(inDir, `${t.hash}.${st.ext}`), Buffer.from(st.raw, 'base64')); } catch { /* skip */ }
+    }
+    const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scripts', 'avatar-resize.ps1');
+    execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-InputDir', inDir, '-OutputDir', outDir, '-Size', String(AVATAR_TARGET)],
+      { encoding: 'utf8', windowsHide: true, timeout: 30000 },
+    );
+    for (const t of missing) {
+      const jp = path.join(outDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
+      try {
+        const small = readFileSync(jp, 'utf8');
+        if (small) {
+          const b64 = `data:image/jpeg;base64,${small}`;
+          t.p.avatar_base64 = b64;
+          memAvatarCache.set(t.hash, b64);
+          try { writeFileSync(path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.jpg`), small); } catch { /* best effort */ }
+        }
+      } catch { /* keep original */ }
+    }
+  } catch (e) {
+    // degrade: keep original avatars
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* temp dir leftover is harmless */ }
+  }
+  return browsers;
 }
