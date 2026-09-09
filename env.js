@@ -503,10 +503,12 @@ export function detectEnvironment(opts = {}) {
 // Avatar optimization — real profile pictures (Screenshots/*, "Profile
 // Picture.png", Avatar dir…) can be 80–400KB each as base64, which bloats the
 // RPC payload and UI rendering. Shrink anything larger than AVATAR_MIN_OPTIMIZE
-// to a 64px JPEG via scripts/avatar-resize.ps1 (System.Drawing — built into
-// Windows PowerShell 5.1, zero npm deps). Results are cached under
-// ~/.dsh/cache/rb-avatars/ (content-hashed); every failure degrades to the
-// original avatar, so detection never breaks because of a resize hiccup.
+// to a 64px PNG via scripts/avatar-resize.ps1 (System.Drawing — built into
+// Windows PowerShell 5.1, zero npm deps). PNG keeps the alpha channel so
+// transparent avatars stay transparent (JPEG would bake a black/white bg).
+// Results are cached under ~/.dsh/cache/rb-avatars-v2/ (content-hashed);
+// every failure degrades to the original avatar, so detection never breaks
+// because of a resize hiccup.
 // ---------------------------------------------------------------------------
 // v2：09-09 的 avatar-resize 曾把二进制 JPEG 写进缓存（JS 端按 base64 文本读 → 乱码），
 // 升级目录让坏缓存作废；读缓存一律过 isValidJpegBase64 魔数校验，坏数据永不复用。
@@ -539,6 +541,21 @@ export function isValidJpegBase64(text) {
   try {
     const buf = Buffer.from(text.replace(/\s+/g, ''), 'base64');
     return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `text` is base64 that decodes to a PNG (magic 89 50 4E 47).
+ * 压缩管线输出 PNG（保留 alpha 透明通道——透明头像不得被压成黑/白底），
+ * 读缓存/输出时校验魔数，坏数据永不复用。
+ */
+export function isValidPngBase64(text) {
+  if (typeof text !== 'string' || text.length < 4) return false;
+  try {
+    const buf = Buffer.from(text.replace(/\s+/g, ''), 'base64');
+    return buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   } catch {
     return false;
   }
@@ -582,11 +599,11 @@ export function optimizeAvatars(browsers) {
   for (const t of todo) {
     const mem = memAvatarCache.get(t.hash);
     if (mem) { t.p.avatar_base64 = mem; continue; }
-    const jp = path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
+    const jp = path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.png`);
     try {
       const small = readFileSync(jp, 'utf8');
-      if (small && isValidJpegBase64(small)) {
-        const b64 = `data:image/jpeg;base64,${small}`;
+      if (small && isValidPngBase64(small)) {
+        const b64 = `data:image/png;base64,${small}`;
         t.p.avatar_base64 = b64;
         memAvatarCache.set(t.hash, b64);
         continue;
@@ -615,14 +632,14 @@ export function optimizeAvatars(browsers) {
       { encoding: 'utf8', windowsHide: true, timeout: 30000 },
     );
     for (const t of missing) {
-      const jp = path.join(outDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
+      const jp = path.join(outDir, `${t.hash}.${AVATAR_TARGET}px.png`);
       try {
         const small = readFileSync(jp, 'utf8');
-        if (small && isValidJpegBase64(small)) {
-          const b64 = `data:image/jpeg;base64,${small}`;
+        if (small && isValidPngBase64(small)) {
+          const b64 = `data:image/png;base64,${small}`;
           t.p.avatar_base64 = b64;
           memAvatarCache.set(t.hash, b64);
-          try { writeFileSync(path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.jpg`), small); } catch { /* best effort */ }
+          try { writeFileSync(path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.png`), small); } catch { /* best effort */ }
         }
       } catch { /* keep original */ }
     }

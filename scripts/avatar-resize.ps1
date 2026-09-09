@@ -1,7 +1,7 @@
-# avatar-resize.ps1 — batch-resize avatar images to small square JPEGs (System.Drawing, built into Windows PowerShell 5.1).
+# avatar-resize.ps1 — batch-resize avatar images to small square PNGs (System.Drawing, built into Windows PowerShell 5.1).
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File avatar-resize.ps1 -InputDir <dir> -OutputDir <dir> [-Size 64]
 # Input:  every *.png / *.jpg in InputDir (file name = hash, no extension needed)
-# Output: <base>.<size>px.jpg in OutputDir (base64 JPEG, small enough for RPC/UI)
+# Output: <base>.<size>px.png in OutputDir (base64 PNG 文本，保留 alpha 透明通道，small enough for RPC/UI)
 param(
   [Parameter(Mandatory = $true)][string]$InputDir,
   [Parameter(Mandatory = $true)][string]$OutputDir,
@@ -15,7 +15,7 @@ foreach ($file in Get-ChildItem -Path $InputDir -File) {
   $ext = $file.Extension.ToLower()
   if ($ext -ne '.png' -and $ext -ne '.jpg' -and $ext -ne '.jpeg' -and $ext -ne '.webp' -and $ext -ne '.ico') { continue }
   $base = $file.BaseName
-  $out = Join-Path $OutputDir "$base.${Size}px.jpg"
+  $out = Join-Path $OutputDir "$base.${Size}px.png"
   if (Test-Path $out) { $done++; continue }
   try {
     $img = [System.Drawing.Image]::FromFile($file.FullName)
@@ -24,11 +24,12 @@ foreach ($file in Get-ChildItem -Path $InputDir -File) {
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.DrawImage($img, 0, 0, $Size, $Size)
-    # 契约：输出文件是 base64 文本（env.js 以 utf8 读 + "data:image/jpeg;base64," 包装）。
-    # 不能直接 Save($out)——那会写二进制 JPEG，JS 端按 base64 文本读就变乱码（09-09 回归 bug）。
+    # 契约：输出文件是 base64 文本（env.js 以 utf8 读 + "data:image/png;base64," 包装）。
+    # 不能直接 Save($out)——那会写二进制，JS 端按 base64 文本读就变乱码（09-09 回归 bug）。
+    # 用 PNG 输出保留 alpha 透明通道（透明头像不得被压成黑/白底）。
     # 先存临时二进制，再转 base64 写文本。
     $tmpOut = "$out.tmp"
-    $bmp.Save($tmpOut, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    $bmp.Save($tmpOut, [System.Drawing.Imaging.ImageFormat]::Png)
     $bytes = [System.IO.File]::ReadAllBytes($tmpOut)
     [System.IO.File]::WriteAllText($out, [System.Convert]::ToBase64String($bytes))
     Remove-Item -Force -ErrorAction SilentlyContinue $tmpOut

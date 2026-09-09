@@ -10,7 +10,7 @@ import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { detectEnvironment, optimizeAvatars, isValidJpegBase64 } from '../env.js';
+import { detectEnvironment, optimizeAvatars, isValidJpegBase64, isValidPngBase64 } from '../env.js';
 
 // ---- tiny PNG generator (node:zlib, no deps) ----
 const CRC_TABLE = (() => {
@@ -63,9 +63,11 @@ assert.equal(isValidJpegBase64(123), false);
 const jpegB64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64');
 assert.equal(isValidJpegBase64(jpegB64), true);
 assert.equal(isValidJpegBase64(jpegB64.replace(/(.{4})/g, '$1\n')), true, 'base64 with whitespace must pass');
-console.log('  ✅ isValidJpegBase64 gates');
+assert.equal(isValidPngBase64(Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]).toString('base64')), true);
+assert.equal(isValidPngBase64('garbage'), false);
+console.log('  ✅ isValidJpegBase64 / isValidPngBase64 gates');
 
-// 2) oversized PNG -> real PS resize -> valid JPEG
+// 2) oversized PNG -> real PS resize -> valid PNG (alpha preserved)
 const bigPng = `data:image/png;base64,${makePng(512, 512).toString('base64')}`;
 assert.ok(bigPng.length > 24 * 1024, `test PNG (${bigPng.length}b) should exceed optimize threshold`);
 {
@@ -74,24 +76,24 @@ assert.ok(bigPng.length > 24 * 1024, `test PNG (${bigPng.length}b) should exceed
   const av = browsers[0].profiles[0].avatar_base64;
   const d = decodeDataUrl(av);
   assert.ok(d, `expected data URL, got ${av.slice(0, 40)}`);
-  assert.equal(d.mime, 'image/jpeg');
-  assert.ok(isJpeg(d.buf), 'optimized avatar must decode to a real JPEG (FFD8FF)');
-  console.log('  ✅ oversized PNG → valid 64px JPEG via PS resize');
+  assert.equal(d.mime, 'image/png');
+  assert.ok(isPng(d.buf), 'optimized avatar must decode to a real PNG (89504E47)');
+  console.log('  ✅ oversized PNG → valid 64px PNG via PS resize (alpha preserved)');
 }
 
 // 3) corrupt cache entry is rejected & regenerated
 {
   const raw = bigPng.slice(bigPng.indexOf(',') + 1).replace(/\s+/g, '');
   const hash = createHash('sha1').update(raw).digest('hex').slice(0, 24);
-  const cachePath = path.join(os.homedir(), '.dsh', 'cache', 'rb-avatars-v2', `${hash}.64px.jpg`);
+  const cachePath = path.join(os.homedir(), '.dsh', 'cache', 'rb-avatars-v2', `${hash}.64px.png`);
   mkdirSync(path.dirname(cachePath), { recursive: true });
-  writeFileSync(cachePath, 'this is not a jpeg base64 !!!');
+  writeFileSync(cachePath, 'this is not a png base64 !!!');
   const browsers = [{ profiles: [{ id: 't2', name: 'T2', avatar_base64: bigPng }], cdp_environments: [] }];
   optimizeAvatars(browsers);
   const av = browsers[0].profiles[0].avatar_base64;
-  assert.ok(!av.includes('this is not a jpeg'), 'corrupt cache must never be surfaced');
+  assert.ok(!av.includes('this is not a png'), 'corrupt cache must never be surfaced');
   const d = decodeDataUrl(av);
-  assert.ok(d && d.mime === 'image/jpeg' && isJpeg(d.buf), 'regenerated avatar must be a valid JPEG');
+  assert.ok(d && d.mime === 'image/png' && isPng(d.buf), 'regenerated avatar must be a valid PNG');
   rmSync(cachePath, { force: true });
   console.log('  ✅ corrupt cache rejected & regenerated');
 }

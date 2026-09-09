@@ -42,7 +42,10 @@ function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
         title={restricted ? '浏览器默认用户路径 — 基于浏览器安全规范，不可用于自动化控制；右键查看操作' : (allowed ? '已允许 AI 操作，点击取消授权；右键更多操作' : '点击允许 AI 操作该配置；右键更多操作')}
         style={{
           position: 'relative', width: 118, height: 118, borderRadius: '50%', clipPath: 'circle(50%)',
-          border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)',
+          border: '1px solid var(--dsw-alias-border-l2)',
+          // 背景必须透明：头像/图标可能是透明底（用户要求），透出真实页面背景，
+          // 不能画默认色（深色主题下白底/浅底框会盖在透明头像后面）
+          background: 'transparent',
           cursor: restricted ? 'default' : 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
           opacity: restricted ? 0.6 : 1, userSelect: 'none', flexShrink: 0,
