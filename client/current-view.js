@@ -9,13 +9,7 @@
  * 运行状态点（●绿=运行带端口 / ○灰=未运行）。
  */
 import React, { useState, useEffect } from 'react';
-import { keyOf, BrowserIcon, ProfileAvatar, StatusDot, Menu, brandOf } from './widgets.js';
-
-const dirName = (d) => {
-  const s = String(d || '').replace(/[\\/]+$/, '');
-  const parts = s.split(/[\\/]/);
-  return parts.length > 1 ? parts.slice(-2).join('\\') : s;
-};
+import { keyOf, BrowserIcon, ProfileAvatar, StatusDot, Menu, brandOf, PathText } from './widgets.js';
 
 function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
   const [menuPos, setMenuPos] = useState(null);
@@ -77,7 +71,7 @@ function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
         <div style={{ fontSize: 10.5, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {[cfg.user_name, cfg.email].filter(Boolean).join(' · ') || cfg.profileId}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'Consolas, monospace' }} title={cfg.userDataDir}>{dirName(cfg.userDataDir)}</div>
+        <PathText text={cfg.userDataDir} fontSize={10} color="var(--dsw-alias-label-tertiary)" style={{ maxWidth: '100%' }} />
         {cfg.userConfigured && <div style={{ fontSize: 9.5, color: 'var(--dsw-alias-state-warn-primary)' }}>自定义目录</div>}
         <div style={{ fontSize: 10, color: restricted ? 'var(--dsw-alias-label-tertiary)' : cfg.restriction === 'multi_user' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)' }}>
           {restricted ? '默认路径·不可用' : cfg.restriction === 'multi_user' ? '多用户目录·受限' : '单用户目录·可用'}

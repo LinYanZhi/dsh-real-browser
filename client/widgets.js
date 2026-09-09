@@ -30,6 +30,30 @@ export function BrowserIcon({ kind, size = 32 }) {
   );
 }
 
+/** 长文本/路径显示——对齐 DSH 插件生态（dsh-better-sidebar 同款）：
+ *  单行：text-overflow:ellipsis + white-space:nowrap + overflow:hidden（+min-width:0/flex:1 由调用方给），
+ *        悬停 title 显示完整内容——不做中间省略、不插零宽空格；
+ *  多行：white-space:pre-wrap + word-break:break-word（断词换行）。 */
+export function PathText({ text, singleLine = true, monospace = true, fontSize = 11, color, style }) {
+  const full = String(text ?? '');
+  return (
+    <span
+      title={full}
+      style={{
+        fontFamily: monospace ? 'Consolas, monospace' : undefined,
+        fontSize,
+        color,
+        ...(singleLine
+          ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, display: 'inline-block', maxWidth: '100%', verticalAlign: 'bottom' }
+          : { whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }),
+        ...style,
+      }}
+    >
+      {full}
+    </span>
+  );
+}
+
 /** 圆形头像：用户头像优先（正圆裁切，透明底无边框），无则首字母 + 品牌色。
  * 对齐 GLBT：avatar 非空直接 <img>（data URL / http URL 均可；Chrome/Edge 的
  * <img> 本身支持 x-icon/ico 与 png/jpeg 显示，格式交给浏览器，不做白名单）。
@@ -148,7 +172,7 @@ export function CommandModal({ info, onClose, onCopy }) {
           <button type="button" className="rb-btn" onClick={onCopy} style={{ fontSize: 12, padding: '3px 10px', marginRight: 6 }}>复制</button>
           <button type="button" className="rb-btn" onClick={onClose} style={{ fontSize: 12, padding: '3px 10px' }}>关闭</button>
         </div>
-        <div style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 8, padding: 10, fontFamily: 'Consolas, monospace', fontSize: 12, wordBreak: 'break-all', marginBottom: 8 }}>{info.command_line}</div>
+        <div style={{ background: 'var(--dsw-alias-markdown-inline-code)', borderRadius: 8, padding: 10, fontFamily: 'Consolas, monospace', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', marginBottom: 8 }}>{info.command_line}</div>
         <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 }}>
           <div style={{ marginBottom: 4 }}>参数（{info.args.length}）：</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

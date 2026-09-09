@@ -8,7 +8,7 @@
  * 新建用户数据目录（含最小 Local State）、移除自定义目录、全部终止（确认后执行）。
  */
 import React, { useState } from 'react';
-import { BrowserIcon, ProfileAvatar, brandOf } from './widgets.js';
+import { BrowserIcon, ProfileAvatar, brandOf, PathText } from './widgets.js';
 
 function ProfileMini({ cfg, accent, running, onAction }) {
   const cdp = !!cfg.cdp && cfg.restriction !== 'default_dir';
@@ -26,7 +26,7 @@ function ProfileMini({ cfg, accent, running, onAction }) {
       <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {[cfg.id, cfg.user_name, cfg.email].filter(Boolean).join(' · ')}
       </span>
-      {cfg.download_dir && <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }} title={`下载目录: ${cfg.download_dir}`}>⬇ {cfg.download_dir}</span>}
+      {cfg.download_dir && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--dsw-alias-label-tertiary)', minWidth: 0, overflow: 'hidden' }}>⬇ <PathText text={cfg.download_dir} fontSize={11} style={{ maxWidth: 160 }} /></span>}
       <span style={{ flex: 1 }} />
       {running && <span style={{ color: 'var(--dsw-alias-state-success-primary)', fontSize: 11 }} title={`运行中 · CDP 端口 ${running.port ?? '?'}`}>● :{running.port ?? '?'}</span>}
       {actions}
@@ -39,7 +39,7 @@ function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast })
     <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '6px 8px', marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <span style={{ fontSize: 13 }}>{block.cdp ? '⬡' : '🔒'}</span>
-        <span style={{ fontSize: 12.5, fontFamily: 'Consolas, monospace', wordBreak: 'break-all', color: 'var(--dsw-alias-label-primary)' }}>{block.userDataDir}</span>
+        <PathText text={block.userDataDir} fontSize={12.5} color="var(--dsw-alias-label-primary)" style={{ flex: 1, minWidth: 0 }} />
         {block.userConfigured && <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>自定义目录</span>}
         <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>{block.cdp ? '可 CDP' : '默认 · 不可自动化'}</span>
         <span style={{ flex: 1 }} />
@@ -147,6 +147,7 @@ export default function GlobalView({ groups, config, runningMap, onSetExe, onAdd
             value={exeDraft || group.exePaths[0] || ''}
             onChange={(e) => setExeDraft(e.target.value)}
             placeholder="未检测到可执行文件，可手动填写后保存"
+            title={group.exePaths[0] || 'exe 路径'}
             style={{ flex: 1 }}
           />
           <button type="button" className="rb-btn" disabled={busy === 'exe'} onClick={doSetExe}>{busy === 'exe' ? '保存中…' : '保存'}</button>
