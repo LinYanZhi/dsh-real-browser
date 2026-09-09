@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { TYPERT } from '../typert.js';
 import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives';
-import { keyOf, copyText, Toast, CommandModal } from './widgets.js';
+import { keyOf, copyText, Toast, CommandModal, RefreshIcon } from './widgets.js';
 import CurrentView from './current-view.js';
 import GlobalView from './global-view.js';
 
