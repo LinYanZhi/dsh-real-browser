@@ -167,10 +167,14 @@ const UI_CSS = `
 .rb-switch input:checked + .track { background: var(--dsw-alias-state-success-primary); }
 .rb-switch input:checked + .track .thumb { left: 18px; }
 .rb-switch input:focus-visible + .track { box-shadow: 0 0 0 2px var(--dsw-alias-brand-primary, #4c8bf5); }
-.rb-card { transition: border-color .15s, box-shadow .15s, transform .08s; }
-.rb-card:hover { border-color: var(--dsw-alias-border-l3); box-shadow: 0 3px 12px rgba(0,0,0,.09); transform: translateY(-1px); }
-.rb-card--selected { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent) !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, transparent); }
-.rb-card--restricted { opacity: .6; }
+.rb-card { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, opacity .18s ease; }
+.rb-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent); box-shadow: 0 6px 18px rgba(0,0,0,.16); }
+.rb-card:hover .rb-card-avatar { transform: scale(1.05); }
+.rb-card-avatar { transition: transform .18s ease; }
+.rb-card--running { border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 60%, transparent); }
+.rb-card--selected { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, transparent) !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, transparent); }
+.rb-card--restricted { opacity: .55; }
+.rb-card--restricted:hover { transform: none; box-shadow: none; }
 @keyframes rb-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 `;
 
@@ -402,8 +406,8 @@ function BrowserSettings({ api }) {
         {/* 概览条 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 14 }}>浏览器配置</strong>
-          <button type="button" className="rb-btn" onClick={() => refresh(true)} disabled={loading} style={{ fontSize: 12, padding: '3px 10px' }}>
-            {loading ? '检测中…' : '↻ 刷新检测'}
+          <button type="button" className="rb-btn" onClick={() => refresh(true)} disabled={loading} style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {loading ? '检测中…' : <><RefreshIcon size={12} />刷新检测</>}
           </button>
           <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
             已授权 <b style={{ color: allowedCount === allCount && allCount > 0 ? 'var(--dsw-alias-state-success-primary)' : 'inherit' }}>{allowedCount}</b>/{allCount} 个配置

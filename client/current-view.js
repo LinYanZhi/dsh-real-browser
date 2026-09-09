@@ -9,72 +9,75 @@
  * 运行状态点（●绿=运行带端口 / ○灰=未运行）。
  */
 import React, { useState, useEffect } from 'react';
-import { keyOf, BrowserIcon, ProfileAvatar, StatusDot, Menu, brandOf, PathText } from './widgets.js';
+import { keyOf, BrowserIcon, ProfileAvatar, Menu, brandOf, PathText, LockIcon, WarnIcon, CheckIcon, PlayIcon, CommandIcon, StarIcon, CloseIcon, StopIcon } from './widgets.js';
 
 function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
   const [menuPos, setMenuPos] = useState(null);
   const restricted = cfg.restriction === 'default_dir';
   const accent = brandOf(cfg.kind);
+  const runningPort = running?.port;
 
   const items = [
-    { label: '启动（CDP）', icon: '▶', disabled: restricted || !cfg.cdp, onClick: () => onMenu('launch', cfg) },
-    { label: '查看启动命令', icon: '⎘', disabled: restricted || !cfg.cdp, onClick: () => onMenu('command', cfg) },
-    { label: '创建桌面快捷方式', icon: '★', onClick: () => onMenu('shortcut', cfg) },
-    { label: '关闭该配置', icon: '■', disabled: !running, onClick: () => onMenu('close', cfg) },
+    { label: '启动（CDP）', icon: <PlayIcon />, disabled: restricted || !cfg.cdp, onClick: () => onMenu('launch', cfg) },
+    { label: '查看启动命令', icon: <CommandIcon />, disabled: restricted || !cfg.cdp, onClick: () => onMenu('command', cfg) },
+    { label: '创建桌面快捷方式', icon: <StarIcon />, onClick: () => onMenu('shortcut', cfg) },
+    { label: '关闭该配置', icon: <CloseIcon />, disabled: !running, onClick: () => onMenu('close', cfg) },
     { divider: true },
-    { label: `全部终止 ${cfg.kind === 'chrome' ? 'Chrome' : 'Edge'}`, icon: '⏹', danger: true, onClick: () => onMenu('killAll', cfg) },
+    { label: `全部终止 ${cfg.kind === 'chrome' ? 'Chrome' : 'Edge'}`, icon: <StopIcon />, danger: true, onClick: () => onMenu('killAll', cfg) },
   ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      {/* 正圆卡片（= 头像背景框，用户要求 100% 圆角）：正方形 + borderRadius:50%，
-          元信息放圆外下方，避免椭圆/圆角矩形观感 */}
+      {/* 正圆卡片（= 头像背景框，100% 圆角）：透明底只留边框；运行态绿边；hover 抬升+阴影+头像微缩放 */}
       <div
-        className={`rb-card${allowed ? ' rb-card--selected' : ''}${restricted ? ' rb-card--restricted' : ''}`}
+        className={`rb-card${allowed ? ' rb-card--selected' : ''}${restricted ? ' rb-card--restricted' : ''}${runningPort ? ' rb-card--running' : ''}`}
         onClick={() => { if (!restricted) onToggle(cfg); else onToast('浏览器默认用户路径不可用于自动化控制，只能走浏览器自身 UI', 'warn'); }}
         onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
         title={restricted ? '浏览器默认用户路径 — 基于浏览器安全规范，不可用于自动化控制；右键查看操作' : (allowed ? '已允许 AI 操作，点击取消授权；右键更多操作' : '点击允许 AI 操作该配置；右键更多操作')}
         style={{
           position: 'relative', width: 118, height: 118, borderRadius: '50%', clipPath: 'circle(50%)',
           border: '1px solid var(--dsw-alias-border-l2)',
-          // 背景必须透明：头像/图标可能是透明底（用户要求），透出真实页面背景，
-          // 不能画默认色（深色主题下白底/浅底框会盖在透明头像后面）
           background: 'transparent',
           cursor: restricted ? 'default' : 'pointer',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-          opacity: restricted ? 0.6 : 1, userSelect: 'none', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          opacity: restricted ? 0.55 : 1, userSelect: 'none', flexShrink: 0,
         }}
       >
-        {/* 左上角标记：锁定 / 多用户警告 */}
-        {restricted && (
-          <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 13 }} title="默认路径 · 不可自动化">🔒</span>
-        )}
-        {!restricted && cfg.restriction === 'multi_user' && (
-          <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 13 }} title="同 user-data-dir 含多个用户 — 同一时刻只能开一个实例（单实例锁），建议每用户独立目录">⚠</span>
-        )}
-        {/* 右上角：选中勾 */}
-        {allowed && (
-          <span style={{ position: 'absolute', top: 8, right: 8, width: 16, height: 16, borderRadius: '50%', background: accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, zIndex: 2 }}>✓</span>
-        )}
         {/* 右键菜单（跟随鼠标位置） */}
         {menuPos && <Menu items={items} pos={menuPos} onClose={() => setMenuPos(null)} />}
-        {/* 运行状态点 */}
-        <div style={{ position: 'absolute', top: 16 }}>
-          <StatusDot running={!!running} port={running?.port} />
+        {/* 头像（正圆；hover 由 .rb-card-avatar 微缩放） */}
+        <div className="rb-card-avatar" style={{ display: 'flex' }}>
+          <ProfileAvatar cfg={cfg} accent={accent} size={72} />
         </div>
-        {/* 头像（正圆） */}
-        <ProfileAvatar cfg={cfg} accent={accent} size={64} />
+        {/* 受限/多用户标记（左下角，SVG，克制不抢戏） */}
+        {restricted && (
+          <span style={{ position: 'absolute', left: 12, bottom: 12, color: 'var(--dsw-alias-label-tertiary)', display: 'flex' }} title="默认路径 · 不可自动化"><LockIcon size={13} /></span>
+        )}
+        {!restricted && cfg.restriction === 'multi_user' && (
+          <span style={{ position: 'absolute', left: 12, bottom: 12, color: 'var(--dsw-alias-state-warn-primary)', display: 'flex' }} title="同 user-data-dir 含多个用户 — 同一时刻只能开一个实例（单实例锁），建议每用户独立目录"><WarnIcon size={13} /></span>
+        )}
+        {/* 已授权（右上角，SVG 勾） */}
+        {allowed && (
+          <span style={{ position: 'absolute', top: 10, right: 10, width: 18, height: 18, borderRadius: '50%', background: accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}><CheckIcon size={11} /></span>
+        )}
       </div>
       {/* 圆外元信息 */}
-      <div style={{ marginTop: 6, maxWidth: 140, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+      <div style={{ marginTop: 6, maxWidth: 150, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
         <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--dsw-alias-label-primary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.profileName || cfg.profileId}</div>
         <div style={{ fontSize: 10.5, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {[cfg.user_name, cfg.email].filter(Boolean).join(' · ') || cfg.profileId}
         </div>
         <PathText text={cfg.userDataDir} fontSize={10} color="var(--dsw-alias-label-tertiary)" style={{ maxWidth: '100%' }} />
         {cfg.userConfigured && <div style={{ fontSize: 9.5, color: 'var(--dsw-alias-state-warn-primary)' }}>自定义目录</div>}
-        <div style={{ fontSize: 10, color: restricted ? 'var(--dsw-alias-label-tertiary)' : cfg.restriction === 'multi_user' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)' }}>
-          {restricted ? '默认路径·不可用' : cfg.restriction === 'multi_user' ? '多用户目录·受限' : '单用户目录·可用'}
+        <div style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 4, color: restricted ? 'var(--dsw-alias-label-tertiary)' : cfg.restriction === 'multi_user' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)' }}>
+          {runningPort ? (
+            <>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--dsw-alias-state-success-primary)', display: 'inline-block' }} />
+              <span>运行中 · :{runningPort}</span>
+            </>
+          ) : (
+            <span>{restricted ? '默认路径·不可用' : cfg.restriction === 'multi_user' ? '多用户目录·受限' : '单用户目录·可用'}</span>
+          )}
         </div>
       </div>
     </div>
@@ -118,7 +121,7 @@ export default function CurrentView({ groups, allowedSet, runningMap, onToggle, 
               <span style={{ fontWeight: 600, fontSize: 13.5 }}>{g.browserName}</span>
               {g.installed && g.version && <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' }}>v{g.version}</span>}
               <span style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' }}>{g.profiles.length} 个配置</span>
-              {runN > 0 && <span style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-success-primary)' }}>● {runN} 运行</span>}
+              {runN > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--dsw-alias-state-success-primary)' }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--dsw-alias-state-success-primary)', display: 'inline-block' }} />{runN} 运行</span>}
               <span style={{ flex: 1 }} />
               <label className="rb-switch" title={allSelected ? '取消本组全部授权' : '全选本组可授权配置'}>
                 <input type="checkbox" checked={allSelected} disabled={selectable.length === 0} onChange={(e) => onToggleGroup(g.kind, selectable, e.target.checked)} />

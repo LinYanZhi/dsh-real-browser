@@ -8,15 +8,15 @@
  * 新建用户数据目录（含最小 Local State）、移除自定义目录、全部终止（确认后执行）。
  */
 import React, { useState } from 'react';
-import { BrowserIcon, ProfileAvatar, brandOf, PathText } from './widgets.js';
+import { BrowserIcon, ProfileAvatar, brandOf, PathText, DownloadIcon, DirIcon, LockIcon, CloseIcon, CommandIcon, StarIcon } from './widgets.js';
 
 function ProfileMini({ cfg, accent, running, onAction }) {
   const cdp = !!cfg.cdp && cfg.restriction !== 'default_dir';
   const actions = (
     <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }}>
-      {cdp && <button type="button" className="rb-link-btn" title="查看启动命令" onClick={() => onAction('command', cfg)}>⎘ 命令</button>}
-      <button type="button" className="rb-link-btn" title="创建桌面快捷方式" onClick={() => onAction('shortcut', cfg)}>★ 快捷方式</button>
-      {running ? <button type="button" className="rb-link-btn" title="关闭该配置" onClick={() => onAction('close', cfg)}>■ 关闭</button> : null}
+      {cdp && <button type="button" className="rb-link-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title="查看启动命令" onClick={() => onAction('command', cfg)}><CommandIcon size={11} />命令</button>}
+      <button type="button" className="rb-link-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title="创建桌面快捷方式" onClick={() => onAction('shortcut', cfg)}><StarIcon size={11} />快捷方式</button>
+      {running ? <button type="button" className="rb-link-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title="关闭该配置" onClick={() => onAction('close', cfg)}><CloseIcon size={11} />关闭</button> : null}
     </span>
   );
   return (
@@ -26,9 +26,9 @@ function ProfileMini({ cfg, accent, running, onAction }) {
       <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {[cfg.id, cfg.user_name, cfg.email].filter(Boolean).join(' · ')}
       </span>
-      {cfg.download_dir && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--dsw-alias-label-tertiary)', minWidth: 0, overflow: 'hidden' }}>⬇ <PathText text={cfg.download_dir} fontSize={11} style={{ maxWidth: 160 }} /></span>}
+      {cfg.download_dir && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--dsw-alias-label-tertiary)', minWidth: 0, overflow: 'hidden' }}><DownloadIcon size={11} /><PathText text={cfg.download_dir} fontSize={11} style={{ maxWidth: 160 }} /></span>}
       <span style={{ flex: 1 }} />
-      {running && <span style={{ color: 'var(--dsw-alias-state-success-primary)', fontSize: 11 }} title={`运行中 · CDP 端口 ${running.port ?? '?'}`}>● :{running.port ?? '?'}</span>}
+      {running && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-state-success-primary)', fontSize: 11 }} title={`运行中 · CDP 端口 ${running.port ?? '?'}`}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--dsw-alias-state-success-primary)', display: 'inline-block' }} />:{running.port ?? '?'}</span>}
       {actions}
     </div>
   );
@@ -38,7 +38,9 @@ function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast })
   return (
     <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '6px 8px', marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 13 }}>{block.cdp ? '⬡' : '🔒'}</span>
+        <span style={{ display: 'flex', color: block.cdp ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }}>
+          {block.cdp ? <DirIcon size={15} /> : <LockIcon size={15} />}
+        </span>
         <PathText text={block.userDataDir} fontSize={12.5} color="var(--dsw-alias-label-primary)" style={{ flex: 1, minWidth: 0 }} />
         {block.userConfigured && <span style={{ fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>自定义目录</span>}
         <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap' }}>{block.cdp ? '可 CDP' : '默认 · 不可自动化'}</span>
@@ -47,11 +49,11 @@ function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast })
           <button
             type="button"
             className="rb-link-btn"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--dsw-alias-state-error-primary)' }}
             title="从全局配置移除该目录（不移除授权，可在「当前配置」取消勾选）"
             onClick={() => { if (window.confirm(`从全局配置移除自定义目录？\n${block.userDataDir}\n（不移除磁盘文件与已有授权）`)) onRemoveDir(block.userDataDir); }}
-            style={{ color: 'var(--dsw-alias-state-error-primary)' }}
           >
-            ✕ 移除
+            <CloseIcon size={11} />移除
           </button>
         )}
       </div>

@@ -54,6 +54,30 @@ export function PathText({ text, singleLine = true, monospace = true, fontSize =
   );
 }
 
+/**
+ * 轻量 SVG 图标集（16 viewBox，stroke=currentColor，feather 风格）。
+ * 用户明确：不要 unicode 字符图标（🔒⚠✓⬡⬇ 等），一律用 SVG。
+ */
+function Svg({ size = 14, children, ...rest }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden {...rest}>
+      {children}
+    </svg>
+  );
+}
+export const LockIcon = (p) => <Svg {...p}><rect x="4.5" y="7.5" width="7" height="5.5" rx="1.5" /><path d="M6 7.5V6a2 2 0 0 1 4 0v1.5" /></Svg>;
+export const WarnIcon = (p) => <Svg {...p}><path d="M8 3 14 13H2z" /><path d="M8 7v3" /><circle cx="8" cy="11.8" r="0.5" fill="currentColor" stroke="none" /></Svg>;
+export const CheckIcon = (p) => <Svg {...p}><path d="M4 8.2 7 11.2 12.2 5" /></Svg>;
+export const PlayIcon = (p) => <Svg {...p}><path d="M6 4.5v7l5.5-3.5z" fill="currentColor" stroke="none" /></Svg>;
+export const CommandIcon = (p) => <Svg {...p}><path d="M5 5 2.5 8 5 11M11 5l2.5 3L11 11" /></Svg>;
+export const StarIcon = (p) => <Svg {...p}><path d="m8 2.5 1.7 3.4 3.8.6-2.7 2.6.6 3.8-3.4-1.8-3.4 1.8.6-3.8-2.7-2.6 3.8-.6z" /></Svg>;
+export const CloseIcon = (p) => <Svg {...p}><path d="M5 5l6 6M11 5l-6 6" /></Svg>;
+export const StopIcon = (p) => <Svg {...p}><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor" stroke="none" /></Svg>;
+export const DownloadIcon = (p) => <Svg {...p}><path d="M8 3v7M5 7.5 8 10.5 11 7.5M3.5 13h9" /></Svg>;
+export const DirIcon = (p) => <Svg {...p}><path d="M3 4.5h3l1.2 1.5H13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></Svg>;
+export const FolderOpenIcon = (p) => <Svg {...p}><path d="M2.5 5.5h3.2L7 7h6.5v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" /></Svg>;
+export const RefreshIcon = (p) => <Svg {...p}><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3" /></Svg>;
+
 /** 圆形头像：用户头像优先（正圆裁切，透明底无边框），无则首字母 + 品牌色。
  * 对齐 GLBT：avatar 非空直接 <img>（data URL / http URL 均可；Chrome/Edge 的
  * <img> 本身支持 x-icon/ico 与 png/jpeg 显示，格式交给浏览器，不做白名单）。
@@ -100,7 +124,7 @@ export function StatusDot({ running, port }) {
 /** 受限等级徽标（对齐 GLBT profile-rules 三档）。 */
 export function RestrictionTag({ restriction }) {
   if (restriction === 'default_dir') {
-    return <span title="浏览器默认用户路径：完全受限，不可 CDP 自动化（只能走浏览器自身 UI）" style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>🔒 默认目录 · 不可自动化</span>;
+    return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}><LockIcon size={11} />默认目录 · 不可自动化</span>;
   }
   if (restriction === 'multi_user') {
     return <span title="同 user-data-dir 含多个用户：浏览器单实例锁（同目录同时只能开一个实例）→ 部分受限" style={{ fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>⧉ 同目录多用户</span>;
