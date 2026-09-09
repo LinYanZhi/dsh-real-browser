@@ -32,51 +32,53 @@ function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
   ];
 
   return (
-    <div
-      className={`rb-card${allowed ? ' rb-card--selected' : ''}${restricted ? ' rb-card--restricted' : ''}`}
-      onClick={() => { if (!restricted) onToggle(cfg); else onToast('浏览器默认用户路径不可用于自动化控制，只能走浏览器自身 UI', 'warn'); }}
-      onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
-      title={restricted ? '浏览器默认用户路径 — 基于浏览器安全规范，不可用于自动化控制；右键查看操作' : (allowed ? '已允许 AI 操作，点击取消授权；右键更多操作' : '点击允许 AI 操作该配置；右键更多操作')}
-      style={{
-        position: 'relative', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 14, padding: '12px 10px 8px',
-        background: 'var(--dsw-alias-bg-module-platform, #fff)', cursor: restricted ? 'default' : 'pointer',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center',
-        opacity: restricted ? 0.6 : 1, userSelect: 'none',
-      }}
-    >
-      {/* 左上角标记：锁定 / 多用户警告 */}
-      {restricted && (
-        <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 14 }} title="默认路径 · 不可自动化">🔒</span>
-      )}
-      {!restricted && cfg.restriction === 'multi_user' && (
-        <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 14 }} title="同 user-data-dir 含多个用户 — 同一时刻只能开一个实例（单实例锁），建议每用户独立目录">⚠</span>
-      )}
-      {/* 右上角：选中勾 */}
-      {allowed && (
-        <span style={{ position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: '50%', background: accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, zIndex: 2 }}>✓</span>
-      )}
-      {/* 右键菜单（跟随鼠标位置） */}
-      {menuPos && <Menu items={items} pos={menuPos} onClose={() => setMenuPos(null)} />}
-      {/* 运行状态点 */}
-      <div style={{ height: 14, marginTop: -2 }}>
-        <StatusDot running={!!running} port={running?.port} />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {/* 正圆卡片（= 头像背景框，用户要求 100% 圆角）：正方形 + borderRadius:50%，
+          元信息放圆外下方，避免椭圆/圆角矩形观感 */}
+      <div
+        className={`rb-card${allowed ? ' rb-card--selected' : ''}${restricted ? ' rb-card--restricted' : ''}`}
+        onClick={() => { if (!restricted) onToggle(cfg); else onToast('浏览器默认用户路径不可用于自动化控制，只能走浏览器自身 UI', 'warn'); }}
+        onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+        title={restricted ? '浏览器默认用户路径 — 基于浏览器安全规范，不可用于自动化控制；右键查看操作' : (allowed ? '已允许 AI 操作，点击取消授权；右键更多操作' : '点击允许 AI 操作该配置；右键更多操作')}
+        style={{
+          position: 'relative', width: 118, height: 118, borderRadius: '50%', clipPath: 'circle(50%)',
+          border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-module-platform, #fff)',
+          cursor: restricted ? 'default' : 'pointer',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+          opacity: restricted ? 0.6 : 1, userSelect: 'none', flexShrink: 0,
+        }}
+      >
+        {/* 左上角标记：锁定 / 多用户警告 */}
+        {restricted && (
+          <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 13 }} title="默认路径 · 不可自动化">🔒</span>
+        )}
+        {!restricted && cfg.restriction === 'multi_user' && (
+          <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 13 }} title="同 user-data-dir 含多个用户 — 同一时刻只能开一个实例（单实例锁），建议每用户独立目录">⚠</span>
+        )}
+        {/* 右上角：选中勾 */}
+        {allowed && (
+          <span style={{ position: 'absolute', top: 8, right: 8, width: 16, height: 16, borderRadius: '50%', background: accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, zIndex: 2 }}>✓</span>
+        )}
+        {/* 右键菜单（跟随鼠标位置） */}
+        {menuPos && <Menu items={items} pos={menuPos} onClose={() => setMenuPos(null)} />}
+        {/* 运行状态点 */}
+        <div style={{ position: 'absolute', top: 16 }}>
+          <StatusDot running={!!running} port={running?.port} />
+        </div>
+        {/* 头像（正圆） */}
+        <ProfileAvatar cfg={cfg} accent={accent} size={64} />
       </div>
-      {/* 头像 */}
-      <div style={{ marginTop: 2 }}>
-        <ProfileAvatar cfg={cfg} accent={accent} size={56} />
-      </div>
-      {/* 名称 */}
-      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--dsw-alias-label-primary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.profileName || cfg.profileId}</div>
-      {/* 账号 */}
-      <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {[cfg.user_name, cfg.email].filter(Boolean).join(' · ') || cfg.profileId}
-      </div>
-      {/* 来源目录 */}
-      <div style={{ fontSize: 10.5, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'Consolas, monospace' }} title={cfg.userDataDir}>{dirName(cfg.userDataDir)}</div>
-      {cfg.userConfigured && <div style={{ fontSize: 10, color: 'var(--dsw-alias-state-warn-primary)' }}>自定义目录</div>}
-      {/* 底部受限标签 */}
-      <div style={{ fontSize: 10.5, marginTop: 4, color: restricted ? 'var(--dsw-alias-label-tertiary)' : cfg.restriction === 'multi_user' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)' }}>
-        {restricted ? '默认路径·不可用' : cfg.restriction === 'multi_user' ? '多用户目录·受限' : '单用户目录·可用'}
+      {/* 圆外元信息 */}
+      <div style={{ marginTop: 6, maxWidth: 140, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+        <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--dsw-alias-label-primary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.profileName || cfg.profileId}</div>
+        <div style={{ fontSize: 10.5, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {[cfg.user_name, cfg.email].filter(Boolean).join(' · ') || cfg.profileId}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--dsw-alias-label-tertiary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'Consolas, monospace' }} title={cfg.userDataDir}>{dirName(cfg.userDataDir)}</div>
+        {cfg.userConfigured && <div style={{ fontSize: 9.5, color: 'var(--dsw-alias-state-warn-primary)' }}>自定义目录</div>}
+        <div style={{ fontSize: 10, color: restricted ? 'var(--dsw-alias-label-tertiary)' : cfg.restriction === 'multi_user' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)' }}>
+          {restricted ? '默认路径·不可用' : cfg.restriction === 'multi_user' ? '多用户目录·受限' : '单用户目录·可用'}
+        </div>
       </div>
     </div>
   );

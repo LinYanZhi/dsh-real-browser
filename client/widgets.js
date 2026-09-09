@@ -25,7 +25,7 @@ export function BrowserIcon({ kind, size = 32 }) {
         justifyContent: 'center', flexShrink: 0,
       }}
     >
-      <img src={src} alt={label} title={label} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <img src={src} alt={label} title={label} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
     </span>
   );
 }
@@ -33,8 +33,10 @@ export function BrowserIcon({ kind, size = 32 }) {
 /** 圆形头像：用户头像优先（正圆裁切，透明底无边框），无则首字母 + 品牌色。
  * 对齐 GLBT：avatar 非空直接 <img>（data URL / http URL 均可；Chrome/Edge 的
  * <img> 本身支持 x-icon/ico 与 png/jpeg 显示，格式交给浏览器，不做白名单）。
- * onError 兜底：任何加载失败（http URL 被 CSP/网络挡掉、数据损坏）都回退到
- * 首字母，绝不显示浏览器默认的「破图」图标。 */
+ * ⚠️ 硬性要求（用户多次强调）：头像必须是 100% 正圆——容器 clipPath:circle(50%)
+ * + borderRadius:50% + overflow:hidden 三重保险，img 自身也带 borderRadius:50%，
+ * 任何全局 CSS 覆盖 border-radius 都破坏不了圆形裁切。onError 兜底：加载失败
+ * （http URL 被 CSP/网络挡掉、数据损坏）回退到首字母，绝不显示破图图标。 */
 export function ProfileAvatar({ cfg, accent, size = 44 }) {
   const av = cfg.avatar;
   const [failed, setFailed] = useState(false);
@@ -42,12 +44,13 @@ export function ProfileAvatar({ cfg, accent, size = 44 }) {
   return (
     <div
       style={{
-        width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent',
+        width: size, height: size, borderRadius: '50%', clipPath: 'circle(50%)', overflow: 'hidden',
+        flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent',
       }}
     >
       {av && !failed ? (
-        <img src={av} alt={cfg.profileName} draggable={false} onError={() => setFailed(true)} style={{ width: size, height: size, objectFit: 'cover', display: 'block' }} />
+        <img src={av} alt={cfg.profileName} draggable={false} onError={() => setFailed(true)}
+          style={{ width: size, height: size, objectFit: 'cover', display: 'block', borderRadius: '50%' }} />
       ) : (
         <span style={{ fontWeight: 700, fontSize: Math.round(size * 0.42), color: accent, lineHeight: 1, userSelect: 'none' }}>
           {(cfg.profileName || cfg.profileId || '?').charAt(0).toUpperCase()}
