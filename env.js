@@ -508,7 +508,9 @@ export function detectEnvironment(opts = {}) {
 // ~/.dsh/cache/rb-avatars/ (content-hashed); every failure degrades to the
 // original avatar, so detection never breaks because of a resize hiccup.
 // ---------------------------------------------------------------------------
-const avatarCacheDir = path.join(os.homedir(), '.dsh', 'cache', 'rb-avatars');
+// v2：09-09 的 avatar-resize 曾把二进制 JPEG 写进缓存（JS 端按 base64 文本读 → 乱码），
+// 升级目录让坏缓存作废；读缓存一律过 isValidJpegBase64 魔数校验，坏数据永不复用。
+const avatarCacheDir = path.join(os.homedir(), '.dsh', 'cache', 'rb-avatars-v2');
 const AVATAR_MIN_OPTIMIZE = 24 * 1024; // base64 length: only touch > ~18KB images
 const AVATAR_TARGET = 64;
 const memAvatarCache = new Map(); // sha1(raw) -> small base64 data URL
@@ -525,6 +527,21 @@ function stripDataUrl(b64) {
   const rawExt = mime.split('/')[1] || 'png';
   const ext = rawExt === 'x-icon' ? 'ico' : rawExt.replace('jpeg', 'jpg');
   return { raw, ext };
+}
+
+/**
+ * True when `text` is base64 that decodes to a JPEG (magic FF D8 FF).
+ * Guards the avatar resize cache/output so a corrupt write can never be
+ * surfaced as an avatar (would render as 乱码 / broken image in the client).
+ */
+export function isValidJpegBase64(text) {
+  if (typeof text !== 'string' || text.length < 4) return false;
+  try {
+    const buf = Buffer.from(text.replace(/\s+/g, ''), 'base64');
+    return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -568,7 +585,7 @@ export function optimizeAvatars(browsers) {
     const jp = path.join(avatarCacheDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
     try {
       const small = readFileSync(jp, 'utf8');
-      if (small) {
+      if (small && isValidJpegBase64(small)) {
         const b64 = `data:image/jpeg;base64,${small}`;
         t.p.avatar_base64 = b64;
         memAvatarCache.set(t.hash, b64);
@@ -601,7 +618,7 @@ export function optimizeAvatars(browsers) {
       const jp = path.join(outDir, `${t.hash}.${AVATAR_TARGET}px.jpg`);
       try {
         const small = readFileSync(jp, 'utf8');
-        if (small) {
+        if (small && isValidJpegBase64(small)) {
           const b64 = `data:image/jpeg;base64,${small}`;
           t.p.avatar_base64 = b64;
           memAvatarCache.set(t.hash, b64);

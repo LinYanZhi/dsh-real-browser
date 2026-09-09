@@ -24,7 +24,14 @@ foreach ($file in Get-ChildItem -Path $InputDir -File) {
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.DrawImage($img, 0, 0, $Size, $Size)
-    $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    # 契约：输出文件是 base64 文本（env.js 以 utf8 读 + "data:image/jpeg;base64," 包装）。
+    # 不能直接 Save($out)——那会写二进制 JPEG，JS 端按 base64 文本读就变乱码（09-09 回归 bug）。
+    # 先存临时二进制，再转 base64 写文本。
+    $tmpOut = "$out.tmp"
+    $bmp.Save($tmpOut, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    $bytes = [System.IO.File]::ReadAllBytes($tmpOut)
+    [System.IO.File]::WriteAllText($out, [System.Convert]::ToBase64String($bytes))
+    Remove-Item -Force -ErrorAction SilentlyContinue $tmpOut
     $g.Dispose(); $bmp.Dispose(); $img.Dispose()
     $done++
   } catch {

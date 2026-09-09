@@ -32,9 +32,13 @@ export function BrowserIcon({ kind, size = 32 }) {
 
 /** 圆形头像：用户头像优先（正圆裁切，透明底无边框），无则首字母 + 品牌色。
  * 对齐 GLBT：avatar 非空直接 <img>（data URL / http URL 均可；Chrome/Edge 的
- * <img> 本身支持 x-icon/ico 与 png/jpeg 显示，格式交给浏览器，不做白名单）。 */
+ * <img> 本身支持 x-icon/ico 与 png/jpeg 显示，格式交给浏览器，不做白名单）。
+ * onError 兜底：任何加载失败（http URL 被 CSP/网络挡掉、数据损坏）都回退到
+ * 首字母，绝不显示浏览器默认的「破图」图标。 */
 export function ProfileAvatar({ cfg, accent, size = 44 }) {
   const av = cfg.avatar;
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [av]);
   return (
     <div
       style={{
@@ -42,8 +46,8 @@ export function ProfileAvatar({ cfg, accent, size = 44 }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent',
       }}
     >
-      {av ? (
-        <img src={av} alt={cfg.profileName} draggable={false} style={{ width: size, height: size, objectFit: 'cover', display: 'block' }} />
+      {av && !failed ? (
+        <img src={av} alt={cfg.profileName} draggable={false} onError={() => setFailed(true)} style={{ width: size, height: size, objectFit: 'cover', display: 'block' }} />
       ) : (
         <span style={{ fontWeight: 700, fontSize: Math.round(size * 0.42), color: accent, lineHeight: 1, userSelect: 'none' }}>
           {(cfg.profileName || cfg.profileId || '?').charAt(0).toUpperCase()}
