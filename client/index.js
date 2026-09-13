@@ -21,6 +21,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { TYPERT } from '../typert.js';
 import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives';
 import { keyOf, copyText, Toast, CommandModal, RefreshIcon } from './widgets.js';
+import { buildGroups, loadEnvCache, saveEnvCache } from './view-model.js';
 import CurrentView from './current-view.js';
 import GlobalView from './global-view.js';
 
@@ -28,9 +29,13 @@ export const name = 'real-browser-client';
 export const inject = ['remote', 'slots'];
 
 export async function apply(ctx) {
-  // 开发环境标记：仅 dev DSH（realbrowser-dev profile, 3090）时生效，主环境(3080)不显示。
-  // 左上角 logo 染成橙色 + 浏览器标签页 favicon 换成同色鲸鱼，两个环境一眼可区分。
-  const isDev = typeof window !== 'undefined' && window.location.port === '3090';
+  // 开发环境标记：默认 dev DSH（realbrowser-dev profile, 3090 端口）生效；也可用
+  // URL 查询参数 ?rbDev=1 / ?rbDev=0 显式覆盖（改端口后无需改代码）。标记开启时
+  // 左上角 logo 染成橙色 + favicon 换同色鲸鱼，dev/prod 一眼可区分。
+  const isDev =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).get('rbDev') === '1' ||
+      (new URLSearchParams(window.location.search).get('rbDev') !== '0' && window.location.port === '3090'));
   if (isDev) applyDevFavicon();
 
   const remote = ctx.remote;
@@ -185,67 +190,8 @@ const UI_CSS = `
 .rb-card--selected { border-color: var(--dsw-alias-brand-primary) !important; background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary); }
 .rb-card--restricted { opacity: .55; }
 .rb-card--restricted:hover { transform: none; box-shadow: none; }
+@keyframes rb-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 `;
-
-/** 转换 detectEnv 原始输出 → 视图统一的 group 结构（含受限等级 / 自定义目录标注）。 */
-export function buildGroups(browsersRaw) {
-  const mkCfg = (b, p, userDataDir, cdp, userConfigured) => ({
-    kind: b.browser_type,
-    browserName: b.browser_name,
-    version: b.browser_version,
-    userDataDir,
-    cdp,
-    userConfigured: !!userConfigured,
-    exePath: (b.exe_paths && b.exe_paths[0]) || '',
-    profileId: p.id,
-    profileName: p.name,
-    user_name: p.user_name,
-    email: p.email,
-    path: p.path,
-    download_dir: p.download_dir,
-    avatar: p.avatar_base64 || '',
-    restriction: p.restriction || (cdp ? 'none' : 'default_dir'),
-  });
-  return (browsersRaw || []).map((b) => {
-    const blocks = [];
-    if (b.installed && (b.profiles || []).length) {
-      blocks.push({
-        userDataDir: b.default_user_data_dir,
-        cdp: false,
-        userConfigured: false,
-        profiles: (b.profiles || []).map((p) => mkCfg(b, p, b.default_user_data_dir, false, false)),
-      });
-    }
-    for (const env of b.cdp_environments || []) {
-      const ps = (env.profiles || []).map((p) => mkCfg(b, p, env.user_data_dir, true, env.user_configured));
-      if (ps.length) blocks.push({ userDataDir: env.user_data_dir, cdp: true, userConfigured: !!env.user_configured, profiles: ps });
-    }
-    return {
-      kind: b.browser_type,
-      browserName: b.browser_name,
-      version: b.browser_version,
-      installed: b.installed,
-      exePaths: b.exe_paths || [],
-      defaultUserDataDir: b.default_user_data_dir,
-      blocks,
-      profiles: blocks.flatMap((bl) => bl.profiles),
-    };
-  });
-}
-
-/** localStorage 检测缓存：打开设置页首帧立即渲染上次结果（后台刷新覆盖），消除转圈等待。 */
-const ENV_CACHE_KEY = 'rb-env-cache-v2'; // v2：头像均为优化后小图，且 ProfileAvatar 不再做 mime 白名单
-function loadEnvCache() {
-  try {
-    const raw = localStorage.getItem(ENV_CACHE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed.browsers) ? parsed.browsers : [];
-  } catch { return []; }
-}
-function saveEnvCache(browsers) {
-  try { localStorage.setItem(ENV_CACHE_KEY, JSON.stringify({ at: Date.now(), browsers })); } catch { /* quota/best effort */ }
-}
 
 function BrowserSettings({ api }) {
   const [rawBrowsers, setRawBrowsers] = useState(loadEnvCache);

@@ -197,7 +197,38 @@ export function Toast({ text, tone }) {
   const color = tone === 'error' ? 'var(--dsw-alias-state-error-primary)' : tone === 'warn' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-state-success-primary)';
   return (
     <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {text && <div style={{ border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`, background: 'var(--dsw-alias-bg-module-platform, #fff)', color, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, boxShadow: '0 4px 14px rgba(0,0,0,.12)', maxWidth: 380 }}>{text}</div>}
+      {text && <div style={{ border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`, background: 'var(--dsw-alias-bg-module-platform, #fff)', color, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, boxShadow: '0 4px 14px rgba(0,0,0,.12)', maxWidth: 380, animation: 'rb-toast-in .18s ease-out' }}>{text}</div>}
+    </div>
+  );
+}
+
+/** 危险操作确认弹窗（替代原生 window.confirm，与整体 UI 风格一致）。Esc / 遮罩 = 取消。 */
+export function ConfirmModal({ title, message, confirmLabel = '确认', danger = true, onConfirm, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div
+        style={{ width: 420, maxWidth: '90vw', background: 'var(--dsw-alias-bg-module-platform, #fff)', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 12, padding: 16 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="rb-btn" onClick={onClose} style={{ fontSize: 12, padding: '4px 12px' }}>取消</button>
+          <button
+            type="button"
+            className="rb-btn"
+            onClick={() => { onConfirm(); onClose(); }}
+            style={{ fontSize: 12, padding: '4px 12px', borderColor: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-state-error-primary)', background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent)' }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

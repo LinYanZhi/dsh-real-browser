@@ -8,7 +8,7 @@
  * 新建用户数据目录（含最小 Local State）、移除自定义目录、全部终止（确认后执行）。
  */
 import React, { useState } from 'react';
-import { BrowserIcon, ProfileAvatar, brandOf, PathText, DownloadIcon, DirIcon, LockIcon, CloseIcon, CommandIcon, StarIcon } from './widgets.js';
+import { BrowserIcon, ProfileAvatar, brandOf, PathText, DownloadIcon, DirIcon, LockIcon, CloseIcon, CommandIcon, StarIcon, ConfirmModal } from './widgets.js';
 
 function ProfileMini({ cfg, accent, running, onAction }) {
   const cdp = !!cfg.cdp && cfg.restriction !== 'default_dir';
@@ -35,6 +35,7 @@ function ProfileMini({ cfg, accent, running, onAction }) {
 }
 
 function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
   return (
     <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '6px 8px', marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -51,7 +52,7 @@ function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast })
             className="rb-link-btn"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--dsw-alias-state-error-primary)' }}
             title="从全局配置移除该目录（不移除授权，可在「当前配置」取消勾选）"
-            onClick={() => { if (window.confirm(`从全局配置移除自定义目录？\n${block.userDataDir}\n（不移除磁盘文件与已有授权）`)) onRemoveDir(block.userDataDir); }}
+            onClick={() => setConfirmRemove(true)}
           >
             <CloseIcon size={11} />移除
           </button>
@@ -61,6 +62,15 @@ function DirBlock({ block, accent, runningMap, onAction, onRemoveDir, onToast })
       {block.profiles.map((c) => (
         <ProfileMini key={c.profileId} cfg={c} accent={accent} running={runningMap.get(c.kind + '\u0000' + c.userDataDir + '\u0000' + (c.profileId ?? ''))} onAction={onAction} />
       ))}
+      {confirmRemove && (
+        <ConfirmModal
+          title="移除自定义目录"
+          message={`从全局配置移除自定义目录？\n${block.userDataDir}\n\n（不移除磁盘文件与已有授权）`}
+          confirmLabel="移除"
+          onConfirm={() => onRemoveDir(block.userDataDir)}
+          onClose={() => setConfirmRemove(false)}
+        />
+      )}
     </div>
   );
 }
@@ -72,6 +82,7 @@ export default function GlobalView({ groups, config, runningMap, onSetExe, onAdd
   const [parentDraft, setParentDraft] = useState('');
   const [nameDraft, setNameDraft] = useState('');
   const [busy, setBusy] = useState('');
+  const [confirmKillAll, setConfirmKillAll] = useState(false);
 
   const group = groups.find((g) => g.kind === active) || groups[0] || null;
   if (!group) {
@@ -97,7 +108,6 @@ export default function GlobalView({ groups, config, runningMap, onSetExe, onAdd
     try { await onCreateDir(group.kind, parent, name); setNameDraft(''); setParentDraft(''); } finally { setBusy(''); }
   };
   const doKillAll = async () => {
-    if (!window.confirm(`确定终止本机全部 ${group.browserName} 进程（含所有独立目录实例）？正在使用的窗口会被关闭。`)) return;
     setBusy('kill');
     try { await onAction('killAll', { kind: group.kind }); } finally { setBusy(''); }
   };
@@ -134,7 +144,7 @@ export default function GlobalView({ groups, config, runningMap, onSetExe, onAdd
             type="button"
             className="rb-btn"
             disabled={busy === 'kill'}
-            onClick={doKillAll}
+            onClick={() => setConfirmKillAll(true)}
             style={{ fontSize: 11.5, padding: '2px 8px', color: 'var(--dsw-alias-state-error-primary)' }}
           >
             {busy === 'kill' ? '终止中…' : '全部终止'}
@@ -181,6 +191,15 @@ export default function GlobalView({ groups, config, runningMap, onSetExe, onAdd
           自定义目录与 exe 路径持久化在 <code>~/.dsh/realbrowser-config.json</code>，跨会话保留；检测与 AI 的 <code>real_browser_env</code> 自动合并。
         </div>
       </div>
+      {confirmKillAll && (
+        <ConfirmModal
+          title="全部终止"
+          message={`确定终止本机全部 ${group.browserName} 进程（含所有独立目录实例）？\n\n正在使用的窗口会被关闭。`}
+          confirmLabel="终止全部"
+          onConfirm={doKillAll}
+          onClose={() => setConfirmKillAll(false)}
+        />
+      )}
     </div>
   );
 }
