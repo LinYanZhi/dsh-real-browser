@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { launchRealBrowser, closeRealBrowser } from '../launch.js';
 import { auditStealth, cleanupStealthArtifacts } from '../stealth.js';
-import { readConsole } from '../interact.js';
+import { readConsole } from '../interact-aux.js';
 import { waitFor } from '../interact.js';
 import { evaluateJs } from '../cdp.js';
 

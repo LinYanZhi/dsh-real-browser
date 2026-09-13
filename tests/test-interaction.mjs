@@ -8,8 +8,9 @@ import { navigatePage, evaluateJs } from '../cdp.js';
 import { snapshotInteractive } from '../snapshot.js';
 import {
   clickElement, fillElement, typeElement, pressKey, selectOption, checkElement,
-  scrollPage, waitFor, findElements, listTabs, newTab, switchTab, closeTab, networkRequests, readConsole,
+  scrollPage, waitFor, findElements,
 } from '../interact.js';
+import { listTabs, newTab, switchTab, closeTab, networkRequests, readConsole } from '../interact-aux.js';
 
 const EXE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'dsh-interact-'));

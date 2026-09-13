@@ -7,7 +7,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { launchRealBrowser, closeRealBrowser } from '../launch.js';
-import { networkRequests, waitFor } from '../interact.js';
+import { networkRequests } from '../interact-aux.js';
+import { waitFor } from '../interact.js';
 import { evaluateJs } from '../cdp.js';
 import { stopNetworkTracking } from '../network.js';
 
