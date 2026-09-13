@@ -378,10 +378,11 @@ export async function findElements(port, { selector, frame, max = 20, urlSubstri
       framed(frame, `(() => {
         return JSON.stringify(Array.from(__root.querySelectorAll(${JSON.stringify(selector)})).slice(0, ${max}).map(el => ({
           tag: el.tagName.toLowerCase(),
-          id: el.id || undefined,
-          text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100) || undefined,
-          href: (el.getAttribute('href') || undefined),
-          value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? el.value : undefined,
+          // undefined 字段会让工具框架 lossless JSON 校验失败——只保留存在的字段
+          ...(el.id ? { id: el.id } : {}),
+          ...(((el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100)) ? { text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100) } : {}),
+          ...(el.getAttribute('href') ? { href: el.getAttribute('href') } : {}),
+          ...((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? { value: el.value } : {}),
           visible: (() => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })(),
         })));
       })()`),

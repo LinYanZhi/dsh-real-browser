@@ -152,7 +152,7 @@ export async function launchRealBrowser(opts) {
 
   // Attach case: the same environment is already running WITH a debug port.
   if (sameEnv?.port) {
-    return { pid: sameEnv.pid, port: sameEnv.port, wsUrl: undefined, tookOver: false, killed: 0, attached: true };
+    return { pid: sameEnv.pid, port: sameEnv.port, wsUrl: null, tookOver: false, killed: 0, attached: true };
   }
 
   // 0 / undefined both mean "auto-pick a free port" (client sends 0; AI tool omits).
@@ -194,7 +194,7 @@ export async function launchRealBrowser(opts) {
       return {
         pid: child.pid ?? null,
         port,
-        wsUrl: info.webSocketDebuggerUrl,
+        wsUrl: info.webSocketDebuggerUrl ?? null,
         tookOver: killed > 0,
         killed,
         attached: false,

@@ -14,7 +14,7 @@ export async function listTabs(port) {
   const targets = await listTargets(port);
   return targets
     .filter((t) => t.type === 'page')
-    .map((t, i) => ({ tab: `t${i + 1}`, id: t.id, title: t.title, url: t.url }));
+    .map((t, i) => ({ tab: `t${i + 1}`, id: t.id, title: t.title ?? '', url: t.url ?? '' }));
 }
 
 export async function newTab(port, url) {

@@ -68,7 +68,7 @@ export function registerPageTools(ctx, tools) {
           const targets = await listTargets(args.port);
           const pages = targets
             .filter((t) => t.type === 'page')
-            .map((t) => ({ id: t.id, title: t.title, url: t.url }));
+            .map((t) => ({ id: t.id, title: t.title ?? '', url: t.url ?? '' }));
           return { pages };
         },
       }),

@@ -96,22 +96,24 @@ const COLLECT_SCRIPT = `(() => {
     while ((node = walker.nextNode())) {
       if (!isInteractive(node)) continue;
       const r = node.getBoundingClientRect();
+      // undefined 字段会让工具框架 lossless JSON 校验失败 "value is not
+      // lossless JSON"——只保留真实存在的字段（id/role/name/type/frame）
       out.push({
         tag: node.tagName.toLowerCase(),
-        id: node.id || undefined,
-        role: node.getAttribute('role') || undefined,
-        name: nameOf(node) || undefined,
-        type: node.getAttribute('type') || undefined,
+        ...(node.id ? { id: node.id } : {}),
+        ...(node.getAttribute('role') ? { role: node.getAttribute('role') } : {}),
+        ...(nameOf(node) ? { name: nameOf(node) } : {}),
+        ...(node.getAttribute('type') ? { type: node.getAttribute('type') } : {}),
         // Credential isolation: password values are masked IN-PAGE (never
         // leave the browser); sensitive work mode masks every field value.
-        value: (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA')
-          ? (node.type === 'password' ? '[redacted]' : node.value)
-          : undefined,
+        ...((node.tagName === 'INPUT' || node.tagName === 'TEXTAREA')
+          ? { value: node.type === 'password' ? '[redacted]' : node.value }
+          : {}),
         visible: visible(node),
         x: Math.round(r.left + r.width / 2 + ox),
         y: Math.round(r.top + r.height / 2 + oy),
         selector: cssPath(doc, node),
-        frame: framePath || undefined,
+        ...(framePath ? { frame: framePath } : {}),
       });
     }
     const iframes = doc.querySelectorAll('iframe');
@@ -124,7 +126,7 @@ const COLLECT_SCRIPT = `(() => {
         const fr = f.getBoundingClientRect();
         collectInDoc(cd, childPath, ox + fr.left, oy + fr.top);
       } else {
-        crossOriginFrames.push({ frame: childPath, src: f.src || undefined });
+        crossOriginFrames.push({ frame: childPath, ...(f.src ? { src: f.src } : {}) });
       }
     }
   };

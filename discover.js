@@ -87,9 +87,12 @@ export function discoverRunningBrowsers() {
       ...(profileId ? { profileId } : {}),
       background: cmdline.includes('--no-startup-window'),
       attachable: port !== undefined,
-      note: port
-        ? undefined
-        : 'no --remote-debugging-port; cannot attach (relaunch it with a debug port, e.g. --remote-debugging-port=9222)',
+      // 注意：不能把 note 设为 undefined（对象含 undefined 字段 → 工具框架
+      // lossless JSON 校验失败 "value is not lossless JSON"）。无端口时
+      // 才加 note，有端口时整字段省略。
+      ...(port
+        ? {}
+        : { note: 'no --remote-debugging-port; cannot attach (relaunch it with a debug port, e.g. --remote-debugging-port=9222)' }),
     });
   }
   return out;

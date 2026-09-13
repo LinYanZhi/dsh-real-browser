@@ -226,8 +226,9 @@ export async function evaluateJs(port, expression, opts = {}) {
       return out;
     }
     // Build the result with no undefined fields — the tool framework rejects
-    // values that do not round-trip losslessly through JSON.
-    const out = { value: r.result?.value };
+    // values that do not round-trip losslessly through JSON. JS expressions
+    // may legitimately evaluate to undefined (e.g. `void 0`) — map to null.
+    const out = { value: r.result?.value ?? null };
     if (r.result?.type) out.type = r.result.type;
     if (r.result?.subtype) out.subtype = r.result.subtype;
     return out;
