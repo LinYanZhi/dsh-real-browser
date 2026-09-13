@@ -69,19 +69,27 @@ dsh-real-browser/
 ├── captcha.js        # 验证码探测（reCAPTCHA/hCaptcha/Turnstile/Geetest/易盾/阿里云/通用）
 ├── cdp.js            # 零依赖 CDP 客户端：list/eval/dom/navigate + 提交态验证选页 + 不可达/端口占用清晰报错
 ├── discover.js       # 运行实例发现（PowerShell 扫进程 → 端口/目录/profile/后台标记）
-├── env.js            # 环境检测 + 能力模型（镜像 app-kit::browser_paths/profiles/avatar）+ optimizeAvatars（大头像 → 64px JPEG，内容哈希缓存 ~/.dsh/cache/rb-avatars/）
+├── env.js            # 环境检测 + 能力模型（镜像 app-kit::browser_paths/profiles）
+├── env-avatars.js    # 头像管线（fallback 链读取 + 64px PNG 内容哈希缓存，零 npm 依赖）
 ├── launch.js         # 启动/附加/接管/关闭（镜像 app-kit start_or_connect + 内置护栏 + stealth 参数；port 0/undefined 均自动分配）
 ├── snapshot.js       # 交互元素快照（ref 编号 + CSS 选择器生成 + 坐标/可见性；同源 iframe 递归 + 跨源标记；密码值页面内掩码）
-├── interact.js       # 交互原语：click/fill/type/typeSecret/keys/select/check/hover/scroll/wait/find/tabs/network/upload/console（frame 解析层）
+├── interact.js       # 交互原语：click/fill/type/typeSecret/keys/select/check/hover/scroll/wait/find（frame 解析层）
+├── interact-aux.js   # 交互辅助：tabs 管理 / 实时网络捕获 / 文件上传 / console 捕获（frame 解析层）
 ├── downloads.js      # 下载跟踪（持久浏览器级会话监听 Browser 下载事件）
 ├── network.js        # 实时网络捕获（持久页面级会话监听 Network 域，带真实 method/status）
-├── tools.js          # 31 个 AI 工具注册（defineTool + ctx.tools.register；launch 前 assertAllowed / autoGrant 审批；URL 策略守卫）
+├── tools.js          # 工具注册入口（聚合三域模块，共 31 个 AI 工具）
+├── tools-common.js   # 工具共享辅助（text render / 审批申请 / URL 策略守卫 / 当前页 URL）
+├── tools-browser.js  # 浏览器生命周期域：list/launch/close/allow/env/fingerprint
+├── tools-page.js     # 页面交互域：dom/eval/navigate/snapshot/click/fill/…/downloads
+├── tools-guard.js    # 安全边界域：policy/work_mode/vault
 ├── host.js           # host 服务 realBrowser（typert RPC：detectEnv/listRunning/getAllowlist/setAllowed/launch/close/getConfig/setConfig/getLaunchCommand/createUserDataDir/createShortcut/closeProfile/killAll；detectEnv 5s 内存缓存）
 ├── typert.js         # typert RPC 清单（zod codec；服务方法按清单参数顺序位置调用）
 ├── config.js         # 全局浏览器配置（~/.dsh/realbrowser-config.json）：exe 路径 + 自定义用户数据目录，跨会话保留
 ├── ops.js            # 运维操作：getLaunchCommand/createUserDataDir/createShortcut/closeProfile/killAll（PowerShell 零依赖）
+├── edge-avatars.js   # Edge 预设头像内置资源（index -> PNG base64，取自 GLBT app-kit；无 Chrome 的 Avatars 缓存目录时的头像回退）
 ├── scripts/          # PowerShell 辅助（avatar-resize.ps1：System.Drawing 批量缩放头像，PS5.1 内置，零 npm 依赖）
 ├── client/           # web 客户端插件源码（React：「浏览器设置」栏目 = 概览条 + 分段视图 当前浏览器配置/全局浏览器配置；dev 徽标）
+├── client/view-model.js # 客户端视图数据层（buildGroups 转换 + localStorage env 缓存，纯函数）
 ├── build-client.mjs  # esbuild 打包 client/index.js → client.js（__ModuleLoader__.load 格式）
 ├── client.js         # 打包产物（web 加载的就是它；主题走 --dsw-alias-* token）
 ├── smoke.mjs         # 端到端冒烟（headless 临时 profile，自清理）
@@ -143,6 +151,10 @@ node tests/test-network.mjs      # 实时网络捕获（method 过滤真实生�
 node tests/test-interaction.mjs  # 交互层冒烟（snapshot/click/fill/type/keys/select/check/scroll/wait/find/tabs/network/console）
 node tests/test-iframe.mjs       # iframe 穿透（同源递归快照 + frame 定位 + 跨源拒绝）
 node tests/test-downloads.mjs    # 下载跟踪（真实 headless 下载事件）
+node tests/test-contract.mjs     # host/client 契约 + client bundle 内容完整性
+node tests/test-config.mjs       # 全局浏览器配置持久化（exe 路径 / 自定义目录）
+node tests/test-ops.mjs          # 运维操作（启动命令 / 建目录 / 快捷方式 / 关闭 / 全杀）
+node tests/test-avatars.mjs      # 头像管线（压缩 / 缓存魔数 / 回退）
 ```
 
 ## 限制与安全
@@ -157,4 +169,4 @@ node tests/test-downloads.mjs    # 下载跟踪（真实 headless 下载事件�
 - **stealth 纪律**：直接 CDP 附加本就不置 `navigator.webdriver`；控制台 hook 以不可枚举属性注入、可被 `real_browser_fingerprint` 审计并清理，附加后页面不残留可枚举驱动全局。插件从不为"修指纹"而改写页面。
 - **凭证纪律**：vault 值经 DPAPI 加密落盘（仅本机本用户可解），快照/填充对密码框一律脱敏（页面内掩码，值不出浏览器）；`typeSecret` 只传 vault key。
 - 真实 profile = 登录态 = 高权限；写回/下单类操作应挂 DSH 审批。
-- 版本：0.6.0。
+- 版本：0.7.0。
