@@ -2,11 +2,14 @@
  * dsh-real-browser — Client 面 Cordis 插件（DSH web 界面）。
  *
  * 在「设置」里注册「浏览器设置」栏目（settings.section 槽位）：
- *   - 概览条：配置总数 / 已授权 / 运行中 + 凭证隔离 Work Mode + 刷新检测
+ *   - 概览条：配置总数 / 已授权 / 运行中 + 刷新检测
  *   - 分段视图（不复刻 GLBT 布局）：
  *       「当前配置」= 授权边界（AI 能用什么）—— 分组卡片墙，点选/组选/⋮菜单
  *       「全局配置」= 环境资产（机器上有什么+怎么管理）—— 可折叠面板 + 内联编辑
- *   - URL 策略守卫（deny / requireApproval）区块
+ * ⚠️ 刻意不在设置页提供：凭证隔离 Work Mode、URL 策略守卫（deny/requireApproval）——
+ *    两个功能的 AI 工具（real_browser_work_mode / real_browser_policy）与 host RPC 保留，
+ *    但设置页 UI 曾于 d95f8d4 有意移除（commit message：「移除凭证隔离/URL 策略守卫区块
+ *    （AI 工具保留）」）。不要因下方 api 里有 getWorkMode/setWorkMode/getPolicy 等就补 UI。
  * 数据经 host 侧 typert RPC（remote.realBrowser）获取；配置持久化到
  * ~/.dsh/realbrowser-config.json / realbrowser-allowlist.json / realbrowser-policy.json。
  *
@@ -70,6 +73,10 @@ export async function apply(ctx) {
     listRunning: () => call('listRunning'),
     getAllowlist: () => call('getAllowlist'),
     setAllowed: (cfg) => call('setAllowed', cfg.kind, cfg.userDataDir, cfg.profileId ?? '', Boolean(cfg.allowed)),
+    // 以下 5 个 RPC 刻意保留但**不提供设置页 UI**（d95f8d4 有意移除 UI，AI 工具保留）：
+    // getWorkMode/setWorkMode = 凭证隔离 Work Mode（AI 工具 real_browser_work_mode）
+    // getPolicy/policyAdd/policyRemove = URL 策略守卫（AI 工具 real_browser_policy）
+    // 不要因为这里存在就补 UI——见文件头部 ⚠️ 注释。
     getPolicy: () => call('getPolicy'),
     policyAdd: (kind, pattern) => call('policyAdd', kind, pattern),
     policyRemove: (kind, pattern) => call('policyRemove', kind, pattern),
@@ -160,6 +167,9 @@ const UI_CSS = `
 .rb-link-btn { border: none; background: none; color: var(--dsw-alias-label-secondary); font-size: 11.5px; cursor: pointer; padding: 2px 5px; border-radius: 5px; }
 .rb-link-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .rb-icon-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.rb-profile-row { transition: background .15s ease; }
+.rb-profile-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.rb-profile-row:hover .rb-link-btn { color: var(--dsw-alias-label-primary); }
 .rb-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex-shrink: 0; user-select: none; }
 .rb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .rb-switch .track { position: relative; width: 34px; height: 18px; border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover, #e5e9ef); transition: background .18s; display: inline-block; }
@@ -167,15 +177,14 @@ const UI_CSS = `
 .rb-switch input:checked + .track { background: var(--dsw-alias-state-success-primary); }
 .rb-switch input:checked + .track .thumb { left: 18px; }
 .rb-switch input:focus-visible + .track { box-shadow: 0 0 0 2px var(--dsw-alias-brand-primary, #4c8bf5); }
-.rb-card { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, opacity .18s ease; }
+.rb-card { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, opacity .18s ease, background .18s ease; background: var(--dsw-alias-bg-module-platform, #fff); }
 .rb-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent); box-shadow: 0 6px 18px rgba(0,0,0,.16); }
 .rb-card:hover .rb-card-avatar { transform: scale(1.05); }
 .rb-card-avatar { transition: transform .18s ease; }
 .rb-card--running { border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 60%, transparent); }
-.rb-card--selected { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, transparent) !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, transparent); }
+.rb-card--selected { border-color: var(--dsw-alias-brand-primary) !important; background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary); }
 .rb-card--restricted { opacity: .55; }
 .rb-card--restricted:hover { transform: none; box-shadow: none; }
-@keyframes rb-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 `;
 
 /** 转换 detectEnv 原始输出 → 视图统一的 group 结构（含受限等级 / 自定义目录标注）。 */
@@ -243,7 +252,9 @@ function BrowserSettings({ api }) {
   const [allowlist, setAllowlist] = useState({ environments: [] });
   const [running, setRunning] = useState([]);
   const [config, setConfig] = useState({ exePaths: {}, userDataDirs: {} });
-  const [view, setView] = useState('global');
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem('rb-view') === 'current' ? 'current' : 'global'; } catch { return 'global'; }
+  });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [toast, setToast] = useState(null);
@@ -307,8 +318,8 @@ function BrowserSettings({ api }) {
     [runningMap],
   );
 
-  const allCount = groups.reduce((n, g) => n + g.profiles.length, 0);
-  const allowedCount = groups.reduce((n, g) => n + g.profiles.filter((c) => allowedSet.has(keyOf(c))).length, 0);
+  const allCount = groups.reduce((n, g) => n + g.profiles.filter((c) => c.restriction !== 'default_dir').length, 0);
+  const allowedCount = groups.reduce((n, g) => n + g.profiles.filter((c) => c.restriction !== 'default_dir' && allowedSet.has(keyOf(c))).length, 0);
   const runningCount = groups.reduce((n, g) => n + g.profiles.filter((c) => runningOf(c)).length, 0);
 
   const toggle = useCallback(async (cfg) => {
@@ -424,7 +435,7 @@ function BrowserSettings({ api }) {
             <button
               key={s.k}
               type="button"
-              onClick={() => setView(s.k)}
+              onClick={() => { setView(s.k); try { localStorage.setItem('rb-view', s.k); } catch {} }}
               style={{
                 fontSize: 12.5, padding: '5px 14px', borderRadius: 999, cursor: 'pointer',
                 border: view === s.k ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)',

@@ -20,7 +20,7 @@ function ProfileMini({ cfg, accent, running, onAction }) {
     </span>
   );
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 8 }}>
+    <div className="rb-profile-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 8 }}>
       <ProfileAvatar cfg={cfg} accent={accent} size={30} />
       <span style={{ fontWeight: 600, fontSize: 12.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.profileName || cfg.profileId}</span>
       <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

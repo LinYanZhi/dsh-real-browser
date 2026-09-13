@@ -75,7 +75,6 @@ export const CloseIcon = (p) => <Svg {...p}><path d="M5 5l6 6M11 5l-6 6" /></Svg
 export const StopIcon = (p) => <Svg {...p}><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor" stroke="none" /></Svg>;
 export const DownloadIcon = (p) => <Svg {...p}><path d="M8 3v7M5 7.5 8 10.5 11 7.5M3.5 13h9" /></Svg>;
 export const DirIcon = (p) => <Svg {...p}><path d="M3 4.5h3l1.2 1.5H13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></Svg>;
-export const FolderOpenIcon = (p) => <Svg {...p}><path d="M2.5 5.5h3.2L7 7h6.5v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" /></Svg>;
 export const RefreshIcon = (p) => <Svg {...p}><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3" /></Svg>;
 
 /** 圆形头像：用户头像优先（正圆裁切，透明底无边框），无则首字母 + 品牌色。
@@ -106,30 +105,6 @@ export function ProfileAvatar({ cfg, accent, size = 44 }) {
       )}
     </div>
   );
-}
-
-/** 运行状态点：● 绿 = 运行中（带端口），○ 灰 = 未运行。 */
-export function StatusDot({ running, port }) {
-  if (!running) {
-    return <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--dsw-alias-border-l3)', flexShrink: 0, display: 'inline-block' }} title="未运行" />;
-  }
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-state-success-primary)', fontSize: 11, whiteSpace: 'nowrap' }} title={port ? `运行中 · CDP 端口 ${port}` : '运行中（无调试端口）'}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--dsw-alias-state-success-primary)', display: 'inline-block', animation: 'rb-pulse 1.6s ease-in-out infinite' }} />
-      {port ? `:${port}` : '运行'}
-    </span>
-  );
-}
-
-/** 受限等级徽标（对齐 GLBT profile-rules 三档）。 */
-export function RestrictionTag({ restriction }) {
-  if (restriction === 'default_dir') {
-    return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}><LockIcon size={11} />默认目录 · 不可自动化</span>;
-  }
-  if (restriction === 'multi_user') {
-    return <span title="同 user-data-dir 含多个用户：浏览器单实例锁（同目录同时只能开一个实例）→ 部分受限" style={{ fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent)', borderRadius: 10, padding: '0 7px', whiteSpace: 'nowrap' }}>⧉ 同目录多用户</span>;
-  }
-  return null;
 }
 
 /** 轻量 dropdown 菜单（点击外部 / Esc 关闭）。传 pos={x,y} 时 fixed 定位跟随（右键菜单），否则锚定父级。 */
@@ -182,11 +157,18 @@ export function Menu({ items, onClose, align = 'right', pos }) {
   );
 }
 
-/** 启动命令弹窗（查看 / 复制）。 */
+/** 启动命令弹窗（查看 / 复制）。Esc / 遮罩点击 / 关闭按钮均可关闭。 */
 export function CommandModal({ info, onClose, onCopy }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
       <div
+        ref={ref}
         style={{ width: 620, maxWidth: '92vw', maxHeight: '80vh', overflow: 'auto', background: 'var(--dsw-alias-bg-module-platform, #fff)', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 12, padding: 16 }}
         onClick={(e) => e.stopPropagation()}
       >

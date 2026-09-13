@@ -28,16 +28,15 @@ function ProfileCard({ cfg, allowed, running, onToggle, onMenu, onToast }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      {/* 正圆卡片（= 头像背景框，100% 圆角）：透明底只留边框；运行态绿边；hover 抬升+阴影+头像微缩放 */}
+      {/* 方形圆角卡片（选中态有完整边框，不再被正圆裁剪）：头像仍是正圆；运行态绿边；hover 抬升+阴影+头像微缩放 */}
       <div
         className={`rb-card${allowed ? ' rb-card--selected' : ''}${restricted ? ' rb-card--restricted' : ''}${runningPort ? ' rb-card--running' : ''}`}
         onClick={() => { if (!restricted) onToggle(cfg); else onToast('浏览器默认用户路径不可用于自动化控制，只能走浏览器自身 UI', 'warn'); }}
         onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
         title={restricted ? '浏览器默认用户路径 — 基于浏览器安全规范，不可用于自动化控制；右键查看操作' : (allowed ? '已允许 AI 操作，点击取消授权；右键更多操作' : '点击允许 AI 操作该配置；右键更多操作')}
         style={{
-          position: 'relative', width: 118, height: 118, borderRadius: '50%', clipPath: 'circle(50%)',
+          position: 'relative', width: 118, height: 118, borderRadius: 14,
           border: '1px solid var(--dsw-alias-border-l2)',
-          background: 'transparent',
           cursor: restricted ? 'default' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           opacity: restricted ? 0.55 : 1, userSelect: 'none', flexShrink: 0,
