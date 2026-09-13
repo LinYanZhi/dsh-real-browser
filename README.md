@@ -155,6 +155,7 @@ node tests/test-contract.mjs     # host/client 契约 + client bundle 内容完�
 node tests/test-config.mjs       # 全局浏览器配置持久化（exe 路径 / 自定义目录）
 node tests/test-ops.mjs          # 运维操作（启动命令 / 建目录 / 快捷方式 / 关闭 / 全杀）
 node tests/test-avatars.mjs      # 头像管线（压缩 / 缓存魔数 / 回退）
+node tests/test-lossless.mjs     # 全部 31 个工具输出 lossless JSON 校验（防 undefined 字段回归）
 ```
 
 ## 限制与安全
